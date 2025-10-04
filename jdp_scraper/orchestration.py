@@ -52,6 +52,62 @@ def logout(page: Page) -> bool:
         return False
 
 
+def process_single_vehicle(page: Page, ref_num: str, tracking: dict) -> bool:
+    """
+    Process a single vehicle: filter, open, download PDF, return to inventory.
+    
+    Args:
+        page: Playwright Page object
+        ref_num: Reference number to process
+        tracking: Tracking dictionary to update
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Filter inventory by reference number
+        if not filter_by_reference_number(page, ref_num):
+            print(f"[ERROR] Could not filter by reference number: {ref_num}")
+            return False
+        
+        # Click bookout to open vehicle page
+        if not click_bookout_for_vehicle(page, ref_num):
+            print(f"[ERROR] Could not click bookout for: {ref_num}")
+            return False
+        
+        # Download the PDF
+        pdf_path = download_vehicle_pdf(page, ref_num)
+        
+        if not pdf_path:
+            print(f"[ERROR] Could not download PDF for: {ref_num}")
+            # Still navigate back even if download failed
+            navigate_to_inventory(page)
+            return False
+        
+        # Update tracking
+        pdf_filename = f"{ref_num}.pdf"
+        update_tracking(tracking, ref_num, pdf_filename)
+        print(f"[SUCCESS] PDF downloaded and tracked: {ref_num}.pdf")
+        
+        # Navigate back to inventory
+        if not navigate_to_inventory(page):
+            print(f"[WARNING] Could not navigate back to inventory after {ref_num}")
+            # Try to recover by clicking the inventory link
+            page.goto(config.INVENTORY_URL)
+            page.wait_for_load_state("networkidle")
+        
+        return True
+        
+    except Exception as e:
+        print(f"[ERROR] Exception while processing {ref_num}: {e}")
+        # Try to navigate back to inventory for recovery
+        try:
+            navigate_to_inventory(page)
+        except:
+            pass
+        return False
+
+
 def run():
     """Main orchestration function to run the PDF downloader."""
     print(f"Starting JD Power PDF Downloader...")
@@ -59,6 +115,9 @@ def run():
     print(f"Run directory: {config.RUN_DIR}")
     print(f"Headless mode: {config.HEADLESS}")
     print(f"Target URL: {config.BASE_URL}")
+    
+    # Configuration for batch processing
+    MAX_DOWNLOADS = 50  # Download up to 50 PDFs in this run (configurable)
     
     with sync_playwright() as p:
         # Launch browser
@@ -105,53 +164,57 @@ def run():
             # Save tracking to JSON for resume capability
             save_tracking_to_json(tracking)
             
-            # TEST: Download PDF for the FIRST reference number only
-            print("\n=== TESTING PDF DOWNLOAD FOR FIRST REFERENCE NUMBER ===")
+            # Get list of reference numbers that need downloading
+            pending_refs = [ref for ref, status in tracking.items() if status is None]
+            total_pending = len(pending_refs)
+            already_done = len(tracking) - total_pending
             
-            # Get the first reference number that needs downloading
-            first_ref = None
-            for ref_num, pdf_status in tracking.items():
-                if pdf_status is None:  # Not downloaded yet
-                    first_ref = ref_num
-                    break
+            print(f"\n{'='*60}")
+            print(f"BATCH PROCESSING: Will download up to {MAX_DOWNLOADS} PDFs")
+            print(f"Total vehicles: {len(tracking)}")
+            print(f"Already downloaded: {already_done}")
+            print(f"Pending: {total_pending}")
+            print(f"{'='*60}\n")
             
-            if first_ref:
-                print(f"Testing with reference number: {first_ref}")
+            if total_pending == 0:
+                print("All PDFs already downloaded! Nothing to do.")
+                return
+            
+            # Limit to MAX_DOWNLOADS
+            refs_to_process = pending_refs[:MAX_DOWNLOADS]
+            
+            # Process each reference number
+            success_count = 0
+            fail_count = 0
+            
+            for idx, ref_num in enumerate(refs_to_process, 1):
+                print(f"\n{'='*60}")
+                print(f"Processing {idx}/{len(refs_to_process)}: Reference {ref_num}")
+                print(f"Progress: {success_count} succeeded, {fail_count} failed")
+                print(f"{'='*60}")
                 
-                # Filter inventory by reference number
-                if filter_by_reference_number(page, first_ref):
-                    # Click bookout to open vehicle page
-                    if click_bookout_for_vehicle(page, first_ref):
-                        # Download the PDF
-                        pdf_path = download_vehicle_pdf(page, first_ref)
-                        
-                        if pdf_path:
-                            # Update tracking
-                            pdf_filename = f"{first_ref}.pdf"
-                            update_tracking(tracking, first_ref, pdf_filename)
-                            print(f"\n[TEST SUCCESS] PDF downloaded and tracking updated!")
-                        else:
-                            print(f"\n[TEST FAILED] Could not download PDF")
-                        
-                        # Navigate back to inventory
-                        print("\nNavigating back to inventory...")
-                        if navigate_to_inventory(page):
-                            print("[SUCCESS] Back at inventory page")
-                    else:
-                        print("[TEST FAILED] Could not click bookout")
+                if process_single_vehicle(page, ref_num, tracking):
+                    success_count += 1
                 else:
-                    print("[TEST FAILED] Could not filter by reference number")
-            else:
-                print("No reference numbers need downloading!")
+                    fail_count += 1
+                
+                # Show progress
+                print(f"\nStatus: {success_count}/{len(refs_to_process)} completed successfully")
             
-            print("=== TEST COMPLETE ===\n")
-            
-            # Keep browser open for now to inspect
-            print("\nBrowser is open. Press Ctrl+C to close...")
-            input("Press Enter to close the browser...")
+            # Final summary
+            print(f"\n{'='*60}")
+            print(f"BATCH COMPLETE!")
+            print(f"{'='*60}")
+            print(f"Successfully downloaded: {success_count}")
+            print(f"Failed: {fail_count}")
+            print(f"Total processed: {len(refs_to_process)}")
+            print(f"Remaining: {total_pending - len(refs_to_process)}")
+            print(f"{'='*60}\n")
             
         except Exception as e:
             print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             # ALWAYS logout before closing
             try:
@@ -161,4 +224,3 @@ def run():
             
             browser.close()
             print("\nBrowser closed.")
-

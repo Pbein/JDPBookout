@@ -156,6 +156,7 @@ def export_inventory_csv(page: Page, download_path: str = None) -> str:
 def filter_by_reference_number(page: Page, reference_number: str) -> bool:
     """
     Filter the inventory table by reference number (stock number).
+    FIXED: Now properly clears previous value and triggers the filter.
     
     Args:
         page: Playwright Page object
@@ -171,32 +172,53 @@ def filter_by_reference_number(page: Page, reference_number: str) -> bool:
         stock_input = page.locator(selectors.STOCK_NUMBER_INPUT)
         
         if stock_input.is_visible(timeout=5000):
-            # Clear any existing value
+            # Method 1: Clear using triple-click + delete
+            print("Clearing previous value...")
+            stock_input.click(click_count=3)  # Triple-click to select all
+            page.keyboard.press("Backspace")  # Delete the selected text
+            time.sleep(0.5)
+            
+            # Method 2: Fill with empty string to ensure it's clear
             stock_input.fill("")
             time.sleep(0.3)
             
-            # Fill in the reference number
+            # Now fill in the new reference number
+            print(f"Entering new reference number: {reference_number}")
             stock_input.fill(reference_number)
+            
+            # Trigger the onchange event using JavaScript to ensure filter is applied
+            page.evaluate(f"vehicleGridViewFilterChanged('StockNumber')")
             
             # Wait for the table to refresh
             print("Waiting for table to refresh...")
-            time.sleep(2)
-            page.wait_for_load_state("networkidle", timeout=10000)
+            time.sleep(3)  # Increased wait time
+            page.wait_for_load_state("networkidle", timeout=15000)
             
-            print(f"[SUCCESS] Filtered table by reference number: {reference_number}")
-            return True
+            # Verify the input has the correct value
+            current_value = stock_input.input_value()
+            print(f"Stock input now contains: '{current_value}'")
+            
+            if current_value == reference_number:
+                print(f"[SUCCESS] Filtered table by reference number: {reference_number}")
+                return True
+            else:
+                print(f"[WARNING] Input value mismatch. Expected '{reference_number}', got '{current_value}'")
+                return False
         else:
             print("[ERROR] Stock number input not found")
             return False
             
     except Exception as e:
         print(f"[ERROR] Could not filter by reference number: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 def click_bookout_for_vehicle(page: Page, reference_number: str) -> bool:
     """
     Click the Bookout link to open the vehicle details page.
+    Uses JavaScript click via page.evaluate for reliability.
     
     Args:
         page: Playwright Page object
@@ -209,39 +231,24 @@ def click_bookout_for_vehicle(page: Page, reference_number: str) -> bool:
         print(f"Looking for Bookout link for reference: {reference_number}...")
         
         # Wait a moment for the table to fully render
-        time.sleep(1)
+        time.sleep(2)
         
-        # Find the bookout link using ID pattern or image
-        bookout_link = page.locator(selectors.BOOKOUT_LINK).first
+        # Check if bookout image exists
+        bookout_img = page.locator(selectors.BOOKOUT_IMAGE).first
         
-        # Wait for it to be visible
-        if not bookout_link.is_visible(timeout=3000):
-            # Try alternative: find by the image
-            print("Trying image selector...")
-            bookout_img = page.locator(selectors.BOOKOUT_IMAGE).first
-            if not bookout_img.is_visible(timeout=3000):
-                print(f"[ERROR] Bookout link/image not found for reference: {reference_number}")
-                print("Checking what's on the page...")
-                row_count = page.locator("tr[id*='DXDataRow']").count()
-                print(f"Found {row_count} data rows in table")
-                return False
-            # Click the parent link
-            bookout_link = bookout_img.locator("xpath=..")
+        if not bookout_img.is_visible(timeout=5000):
+            print(f"[ERROR] No bookout image found for reference: {reference_number}")
+            print("This reference number might not have a vehicle in the filtered results.")
+            return False
         
-        print("Found Bookout link. Clicking...")
+        # Use JavaScript to click the bookout image's parent link
+        # This is more reliable than Playwright's click for this specific site
+        print("Clicking Bookout link via JavaScript...")
+        page.evaluate("document.querySelector('img[title=\"Bookout\"]').parentElement.click()")
         
-        # Click and wait for navigation (may take time to load)
-        try:
-            with page.expect_navigation(timeout=20000, wait_until="load"):
-                bookout_link.click()
-        except:
-            # Navigation might not trigger an event, just wait a bit
-            bookout_link.click()
-            time.sleep(2)
-        
-        # Wait for page to be fully loaded
-        print("Waiting for vehicle page to load...")
-        page.wait_for_load_state("networkidle", timeout=15000)
+        # Wait for navigation to complete
+        time.sleep(3)
+        page.wait_for_load_state("networkidle", timeout=20000)
         
         print(f"[SUCCESS] Opened vehicle page for reference: {reference_number}")
         print(f"Current URL: {page.url}")
@@ -252,4 +259,3 @@ def click_bookout_for_vehicle(page: Page, reference_number: str) -> bool:
         import traceback
         traceback.print_exc()
         return False
-
