@@ -21,6 +21,9 @@ JD_PASS = os.getenv("JD_PASS", "")
 # Browser settings
 HEADLESS = os.getenv("HEADLESS", "false").lower() in ("true", "1", "yes")
 
+# Batch processing settings
+MAX_DOWNLOADS_PER_RUN = int(os.getenv("MAX_DOWNLOADS", "9999"))  # Default: process all pending
+
 # Timeouts (in milliseconds for Playwright)
 DEFAULT_TIMEOUT = 30000  # 30 seconds
 NAVIGATION_TIMEOUT = 60000  # 60 seconds

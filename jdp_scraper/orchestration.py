@@ -220,8 +220,10 @@ def run():
     print(f"{'='*70}\n")
 
     # Configuration for batch processing
-    MAX_DOWNLOADS = 50  # Download up to 50 PDFs in this run (configurable)
+    MAX_DOWNLOADS = config.MAX_DOWNLOADS_PER_RUN  # From environment or default
     STUCK_THRESHOLD = 5  # Number of consecutive failures before considering "stuck"
+    
+    print(f"Batch size: {MAX_DOWNLOADS if MAX_DOWNLOADS < 9999 else 'ALL'} vehicles per run")
 
     metrics = RunMetrics()
     metrics.add_metadata(headless=config.HEADLESS, max_downloads=MAX_DOWNLOADS)
