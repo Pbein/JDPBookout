@@ -12,7 +12,7 @@ load_dotenv()
 # URLs
 BASE_URL = "https://extapps.jdpowervalues.com/ValuesOnline/Home/LicenseAgreement?ReturnUrl=/ValuesOnline/"
 LOGIN_URL = BASE_URL  # Login is on the same page
-INVENTORY_URL = "https://extapps.jdpowervalues.com/ValuesOnline/Inventory"
+INVENTORY_URL = "https://extapps.jdpowervalues.com/ValuesOnline/vehicle/"
 
 # Credentials from environment
 JD_USER = os.getenv("JD_USER", "")
