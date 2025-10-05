@@ -10,6 +10,7 @@ import sys
 os.environ["MAX_DOWNLOADS"] = "10"
 os.environ["CONCURRENT_CONTEXTS"] = "2"
 os.environ["HEADLESS"] = "false"  # Visible for testing
+os.environ["BLOCK_RESOURCES"] = "false"  # Show styling for visibility
 
 print("="*60)
 print("PARALLEL PROCESSING TEST - 10 VEHICLES, 2 CONTEXTS")
@@ -18,6 +19,7 @@ print("Configuration:")
 print(f"  MAX_DOWNLOADS: {os.environ['MAX_DOWNLOADS']}")
 print(f"  CONCURRENT_CONTEXTS: {os.environ['CONCURRENT_CONTEXTS']}")
 print(f"  HEADLESS: {os.environ['HEADLESS']}")
+print(f"  BLOCK_RESOURCES: {os.environ['BLOCK_RESOURCES']}")
 print("="*60)
 print()
 

@@ -20,6 +20,7 @@ JD_PASS = os.getenv("JD_PASS", "")
 
 # Browser settings
 HEADLESS = os.getenv("HEADLESS", "false").lower() in ("true", "1", "yes")
+BLOCK_RESOURCES = os.getenv("BLOCK_RESOURCES", "true").lower() in ("true", "1", "yes")  # Block CSS/images for speed
 
 # Batch processing settings
 MAX_DOWNLOADS_PER_RUN = int(os.getenv("MAX_DOWNLOADS", "9999"))  # Default: process all pending

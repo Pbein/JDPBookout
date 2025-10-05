@@ -225,6 +225,7 @@ async def run_async() -> None:
     print(f"Max downloads      : {config.MAX_DOWNLOADS_PER_RUN}")
     print(f"Concurrent contexts: {getattr(config, 'CONCURRENT_CONTEXTS', 5)}")
     print(f"Headless mode      : {config.HEADLESS}")
+    print(f"Block resources    : {config.BLOCK_RESOURCES} (CSS/images/fonts)")
     print("="*60 + "\n")
     
     async with async_playwright() as p:
@@ -245,7 +246,7 @@ async def run_async() -> None:
             context_pool = ContextPool(
                 browser=browser,
                 num_contexts=num_contexts,
-                block_resources=True
+                block_resources=config.BLOCK_RESOURCES
             )
             await context_pool.initialize()
             
