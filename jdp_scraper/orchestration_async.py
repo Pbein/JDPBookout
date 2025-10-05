@@ -110,10 +110,13 @@ async def setup_resource_blocking(context: BrowserContext) -> None:
 
 async def recover_to_inventory_async(page: Page) -> bool:
     """
-    Recover from stuck state by closing extra tabs and returning to inventory.
+    Recover from stuck state by returning to inventory.
+    
+    NOTE: In parallel mode, we do NOT close other pages as they belong to other workers.
+    Each worker only manages its own page.
     
     Args:
-        page: The main page for this context
+        page: The worker's page to recover
         
     Returns:
         True if recovery successful, False otherwise
@@ -121,11 +124,8 @@ async def recover_to_inventory_async(page: Page) -> bool:
     try:
         print("[RECOVERY] Attempting to recover to inventory page...")
         
-        # Close any extra tabs/pages in this context
-        for context_page in page.context.pages:
-            if context_page != page and not context_page.is_closed():
-                print(f"[RECOVERY] Closing extra tab: {context_page.url}")
-                await context_page.close()
+        # In parallel mode, we only manage THIS worker's page
+        # Do NOT close other pages - they belong to other workers!
         
         # Navigate back to inventory
         await page.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=20000)
