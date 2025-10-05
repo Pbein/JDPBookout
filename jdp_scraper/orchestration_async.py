@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from jdp_scraper import config
 from jdp_scraper.async_utils import AsyncSemaphorePool
 from jdp_scraper.page_pool import PagePool
+from jdp_scraper.task_queue import AsyncTaskQueue
 from jdp_scraper.checkpoint import ProgressCheckpoint
 from jdp_scraper.metrics import RunMetrics
 from jdp_scraper.downloads import (
@@ -84,85 +85,164 @@ async def recover_to_inventory_async(page: Page) -> bool:
         return False
 
 
+async def worker(
+    worker_id: int,
+    page: Page,
+    task_queue: AsyncTaskQueue,
+    tracking: Dict[str, Optional[str]],
+    checkpoint: ProgressCheckpoint,
+    metrics: RunMetrics,
+    task_timeout: int = 180
+) -> None:
+    """
+    Worker that processes tasks from queue with timeout.
+    
+    Args:
+        worker_id: Worker identifier
+        page: Playwright Page for this worker
+        task_queue: Task queue to pull work from
+        tracking: Tracking dictionary (shared)
+        checkpoint: Progress checkpoint (thread-safe)
+        metrics: Metrics tracker
+        task_timeout: Timeout per task in seconds (default: 3 minutes)
+    """
+    print(f"[WORKER {worker_id}] Started")
+    
+    while True:
+        # Get next task
+        ref_num = await task_queue.get_task(worker_id)
+        
+        if ref_num is None:
+            # Queue empty, check if we're done
+            if await task_queue.is_empty():
+                print(f"[WORKER {worker_id}] No more tasks, shutting down")
+                break
+            
+            # Wait a bit and try again
+            await asyncio.sleep(2)
+            continue
+        
+        print(f"[WORKER {worker_id}] Processing {ref_num}")
+        
+        try:
+            # Process with timeout
+            success = await asyncio.wait_for(
+                process_single_vehicle_async(
+                    page=page,
+                    ref_num=ref_num,
+                    tracking=tracking,
+                    checkpoint=checkpoint,
+                    metrics=metrics,
+                    max_retries=1  # Worker handles retries via queue
+                ),
+                timeout=task_timeout
+            )
+            
+            if success:
+                await task_queue.mark_complete(ref_num)
+                print(f"[WORKER {worker_id}] Completed {ref_num}")
+            else:
+                await task_queue.mark_failed(ref_num, max_retries=2)
+                print(f"[WORKER {worker_id}] Failed {ref_num}")
+        
+        except asyncio.TimeoutError:
+            print(f"[WORKER {worker_id}] TIMEOUT on {ref_num} after {task_timeout}s")
+            await task_queue.mark_failed(ref_num, max_retries=2)
+            
+            # Try to recover the page
+            try:
+                await recover_to_inventory_async(page)
+            except Exception as e:
+                print(f"[WORKER {worker_id}] Recovery failed: {e}")
+        
+        except asyncio.CancelledError:
+            print(f"[WORKER {worker_id}] Cancelled, requeueing {ref_num}")
+            await task_queue.recover_stuck_task(ref_num)
+            raise
+        
+        except Exception as e:
+            print(f"[WORKER {worker_id}] Error on {ref_num}: {e}")
+            await task_queue.mark_failed(ref_num, max_retries=2)
+    
+    print(f"[WORKER {worker_id}] Stopped")
+
+
 async def process_single_vehicle_async(
     page: Page,
     ref_num: str,
     tracking: Dict[str, Optional[str]],
     checkpoint: ProgressCheckpoint,
     metrics: RunMetrics,
-    semaphore_pool: AsyncSemaphorePool,
-    max_retries: int = 2
+    max_retries: int = 1
 ) -> bool:
     """
     Process a single vehicle: filter, open, download PDF (async version).
     
     Args:
-        page: Playwright Page for this context
+        page: Playwright Page for this worker
         ref_num: Reference number to process
         tracking: Tracking dictionary (shared, will be updated)
         checkpoint: Progress checkpoint (thread-safe)
         metrics: Metrics tracker
-        semaphore_pool: Semaphore pool for concurrency control
         max_retries: Number of retry attempts
         
     Returns:
         True if successful, False otherwise
     """
-    async with semaphore_pool.acquire():
-        metrics.start_vehicle(ref_num)
-        
-        for attempt in range(max_retries + 1):
-            try:
-                print(f"\n{'='*60}")
-                print(f"Processing: {ref_num} (Attempt {attempt + 1}/{max_retries + 1})")
-                print(f"{'='*60}")
+    metrics.start_vehicle(ref_num)
+    
+    for attempt in range(max_retries + 1):
+        try:
+            print(f"\n{'='*60}")
+            print(f"Processing: {ref_num} (Attempt {attempt + 1}/{max_retries + 1})")
+            print(f"{'='*60}")
+            
+            # Filter by reference number
+            if not await filter_by_reference_number_async(page, ref_num):
+                raise Exception("Failed to filter by reference number")
+            
+            # Click bookout to open vehicle page
+            if not await click_bookout_for_vehicle_async(page, ref_num):
+                raise Exception("Failed to click bookout")
+            
+            # Download the PDF
+            pdf_path = await download_vehicle_pdf_async(page, ref_num)
+            if not pdf_path:
+                raise Exception("Failed to download PDF")
+            
+            # Update tracking
+            update_tracking(tracking, ref_num, f"{ref_num}.pdf")
+            
+            # Record success
+            await checkpoint.record_success(ref_num)
+            metrics.end_vehicle(ref_num, status="success")
+            
+            # Navigate back to inventory for next vehicle
+            await navigate_to_inventory_async(page)
+            
+            # Rate limiting
+            await asyncio.sleep(1)
+            
+            print(f"[SUCCESS] Completed {ref_num}")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Attempt {attempt + 1} failed for {ref_num}: {e}")
+            
+            if attempt < max_retries:
+                print(f"[RETRY] Retrying {ref_num} after recovery...")
+                await recover_to_inventory_async(page)
+                await asyncio.sleep(3)
+            else:
+                print(f"[FAILED] All attempts exhausted for {ref_num}")
+                await checkpoint.record_failure(ref_num)
+                metrics.end_vehicle(ref_num, status="failed", error=str(e))
                 
-                # Filter by reference number
-                if not await filter_by_reference_number_async(page, ref_num):
-                    raise Exception("Failed to filter by reference number")
-                
-                # Click bookout to open vehicle page
-                if not await click_bookout_for_vehicle_async(page, ref_num):
-                    raise Exception("Failed to click bookout")
-                
-                # Download the PDF
-                pdf_path = await download_vehicle_pdf_async(page, ref_num)
-                if not pdf_path:
-                    raise Exception("Failed to download PDF")
-                
-                # Update tracking
-                update_tracking(tracking, ref_num, f"{ref_num}.pdf")
-                
-                # Record success
-                await checkpoint.record_success(ref_num)
-                metrics.end_vehicle(ref_num, status="success")
-                
-                # Navigate back to inventory for next vehicle
-                await navigate_to_inventory_async(page)
-                
-                # Rate limiting
-                await asyncio.sleep(1)
-                
-                print(f"[SUCCESS] Completed {ref_num}")
-                return True
-                
-            except Exception as e:
-                print(f"[ERROR] Attempt {attempt + 1} failed for {ref_num}: {e}")
-                
-                if attempt < max_retries:
-                    print(f"[RETRY] Retrying {ref_num} after recovery...")
-                    await recover_to_inventory_async(page)
-                    await asyncio.sleep(3)
-                else:
-                    print(f"[FAILED] All attempts exhausted for {ref_num}")
-                    await checkpoint.record_failure(ref_num)
-                    metrics.end_vehicle(ref_num, status="failed", error=str(e))
-                    
-                    # Try to recover for next vehicle
-                    await recover_to_inventory_async(page)
-                    return False
-        
-        return False
+                # Try to recover for next vehicle
+                await recover_to_inventory_async(page)
+                return False
+    
+    return False
 
 
 
@@ -297,48 +377,39 @@ async def run_async() -> None:
             # Get all pages
             pages = [page_pool.get_page(i) for i in range(num_pages)]
             
-            # Pre-assign vehicles to pages (prevents duplicates)
-            print(f"\n[ASSIGNMENT] Pre-assigning vehicles to {num_pages} pages...")
-            assignments: Dict[int, List[str]] = {}
-            for idx, ref in enumerate(pending_refs):
-                page_id = idx % num_pages
-                if page_id not in assignments:
-                    assignments[page_id] = []
-                assignments[page_id].append(ref)
+            # Create task queue
+            print(f"\n[TASK_QUEUE] Creating task queue with {len(pending_refs)} tasks...")
+            task_queue = AsyncTaskQueue(pending_refs)
             
-            for page_id, refs in assignments.items():
-                print(f"[ASSIGNMENT] Page {page_id}: {len(refs)} vehicles")
-            
-            # Create semaphore pool
-            semaphore_pool = AsyncSemaphorePool(max_concurrent=num_pages)
-            
-            # Process vehicles in parallel
-            print(f"\n[PARALLEL] Starting parallel processing...")
-            
-            all_tasks = []
-            for page_id, refs in assignments.items():
-                page = pages[page_id]
-                for ref in refs:
-                    task = process_single_vehicle_async(
+            # Create workers (one per page)
+            print(f"\n[WORKERS] Starting {num_pages} workers...")
+            workers = []
+            for i in range(num_pages):
+                page = pages[i]
+                worker_task = asyncio.create_task(
+                    worker(
+                        worker_id=i,
                         page=page,
-                        ref_num=ref,
+                        task_queue=task_queue,
                         tracking=tracking,
                         checkpoint=checkpoint,
                         metrics=metrics,
-                        semaphore_pool=semaphore_pool
+                        task_timeout=180  # 3 minutes per vehicle
                     )
-                    all_tasks.append(task)
+                )
+                workers.append(worker_task)
             
-            # Wait for all tasks to complete (BLOCKING)
-            results = await asyncio.gather(*all_tasks, return_exceptions=True)
+            # Wait for all workers to complete (BLOCKING)
+            print(f"\n[PARALLEL] Workers processing tasks...")
+            await asyncio.gather(*workers)
             
-            # Count successes
-            successes = sum(1 for r in results if r is True)
-            failures = len(results) - successes
+            # Print final queue statistics
+            await task_queue.print_statistics()
             
+            stats = await task_queue.get_statistics()
             print(f"\n[COMPLETE] Processing finished")
-            print(f"[COMPLETE] Successes: {successes}/{len(results)}")
-            print(f"[COMPLETE] Failures: {failures}/{len(results)}")
+            print(f"[COMPLETE] Successes: {stats['completed']}/{stats['total']}")
+            print(f"[COMPLETE] Failures: {stats['failed']}/{stats['total']}")
             
             # Logout from first context
             await logout_async(pages[0])
