@@ -53,16 +53,56 @@ def logout(page: Page) -> bool:
         return False
 
 
+def recover_to_inventory(page: Page) -> bool:
+    """
+    Attempt to recover back to the inventory page after an error.
+    Closes any stuck tabs/modals and navigates back.
+    
+    Args:
+        page: Playwright Page object
+        
+    Returns:
+        True if recovery successful, False otherwise
+    """
+    try:
+        print("[RECOVERY] Attempting to return to inventory...")
+        
+        # Close any extra tabs that might be open (stuck PDF tabs)
+        try:
+            for context_page in page.context.pages:
+                if context_page != page and not context_page.is_closed():
+                    print(f"[RECOVERY] Closing extra tab: {context_page.url}")
+                    context_page.close()
+        except Exception as e:
+            print(f"[RECOVERY] Could not close extra tabs: {e}")
+        
+        # Try to navigate back to inventory
+        if not navigate_to_inventory(page):
+            # If normal navigation fails, force navigate via URL
+            print("[RECOVERY] Normal navigation failed, forcing URL navigation...")
+            page.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=30000)
+        
+        print("[RECOVERY] Successfully returned to inventory")
+        return True
+        
+    except Exception as e:
+        print(f"[RECOVERY] Failed to recover to inventory: {e}")
+        return False
+
+
 def process_single_vehicle(
-    page: Page, ref_num: str, tracking: dict, metrics: RunMetrics | None = None
+    page: Page, ref_num: str, tracking: dict, metrics: RunMetrics | None = None, max_retries: int = 2
 ) -> bool:
     """
     Process a single vehicle: filter, open, download PDF, return to inventory.
+    Includes retry logic for transient failures.
     
     Args:
         page: Playwright Page object
         ref_num: Reference number to process
         tracking: Tracking dictionary to update
+        metrics: Optional metrics tracker
+        max_retries: Maximum number of retry attempts (default: 2)
         
     Returns:
         True if successful, False otherwise
@@ -70,58 +110,89 @@ def process_single_vehicle(
     if metrics is not None:
         metrics.start_vehicle(ref_num)
 
-    try:
-        # Filter inventory by reference number
-        if not filter_by_reference_number(page, ref_num):
-            print(f"[ERROR] Could not filter by reference number: {ref_num}")
-            if metrics is not None:
-                metrics.end_vehicle(ref_num, status="failed", error="filter_failed")
-            return False
-
-        # Click bookout to open vehicle page
-        if not click_bookout_for_vehicle(page, ref_num):
-            print(f"[ERROR] Could not click bookout for: {ref_num}")
-            if metrics is not None:
-                metrics.end_vehicle(ref_num, status="failed", error="bookout_click_failed")
-            return False
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            print(f"\n[RETRY] Attempt {attempt + 1}/{max_retries + 1} for reference: {ref_num}")
+            import time
+            time.sleep(3)  # Wait a bit before retrying
         
-        # Download the PDF
-        pdf_path = download_vehicle_pdf(page, ref_num)
-        
-        if not pdf_path:
-            print(f"[ERROR] Could not download PDF for: {ref_num}")
-            # Still navigate back even if download failed
-            navigate_to_inventory(page)
-            if metrics is not None:
-                metrics.end_vehicle(ref_num, status="failed", error="download_failed")
-            return False
-
-        # Update tracking
-        pdf_filename = f"{ref_num}.pdf"
-        update_tracking(tracking, ref_num, pdf_filename)
-        print(f"[SUCCESS] PDF downloaded and tracked: {ref_num}.pdf")
-        if metrics is not None:
-            metrics.end_vehicle(ref_num, status="success")
-        
-        # Navigate back to inventory
-        if not navigate_to_inventory(page):
-            print(f"[WARNING] Could not navigate back to inventory after {ref_num}")
-            # Try to recover by clicking the inventory link
-            page.goto(config.INVENTORY_URL)
-            page.wait_for_load_state("networkidle")
-        
-        return True
-        
-    except Exception as e:
-        print(f"[ERROR] Exception while processing {ref_num}: {e}")
-        # Try to navigate back to inventory for recovery
         try:
-            navigate_to_inventory(page)
-        except:
-            pass
-        if metrics is not None:
-            metrics.end_vehicle(ref_num, status="failed", error=str(e))
-        return False
+            # Filter inventory by reference number
+            if not filter_by_reference_number(page, ref_num):
+                print(f"[ERROR] Could not filter by reference number: {ref_num}")
+                if attempt < max_retries:
+                    recover_to_inventory(page)
+                    continue
+                if metrics is not None:
+                    metrics.end_vehicle(ref_num, status="failed", error="filter_failed")
+                return False
+
+            # Click bookout to open vehicle page
+            if not click_bookout_for_vehicle(page, ref_num):
+                print(f"[ERROR] Could not click bookout for: {ref_num}")
+                if attempt < max_retries:
+                    recover_to_inventory(page)
+                    continue
+                if metrics is not None:
+                    metrics.end_vehicle(ref_num, status="failed", error="bookout_click_failed")
+                return False
+            
+            # Download the PDF
+            pdf_path = download_vehicle_pdf(page, ref_num)
+            
+            if not pdf_path:
+                print(f"[ERROR] Could not download PDF for: {ref_num}")
+                # Recover back to inventory
+                if not recover_to_inventory(page):
+                    # If recovery fails, try harder
+                    page.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=30000)
+                
+                # Retry if we have attempts left
+                if attempt < max_retries:
+                    continue
+                    
+                if metrics is not None:
+                    metrics.end_vehicle(ref_num, status="failed", error="download_failed")
+                return False
+
+            # Update tracking
+            pdf_filename = f"{ref_num}.pdf"
+            update_tracking(tracking, ref_num, pdf_filename)
+            print(f"[SUCCESS] PDF downloaded and tracked: {ref_num}.pdf")
+            if metrics is not None:
+                metrics.end_vehicle(ref_num, status="success")
+            
+            # Navigate back to inventory
+            if not navigate_to_inventory(page):
+                print(f"[WARNING] Could not navigate back to inventory after {ref_num}")
+                # Force recovery
+                recover_to_inventory(page)
+            
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Exception while processing {ref_num}: {e}")
+            
+            # Try to recover
+            try:
+                recover_to_inventory(page)
+            except:
+                print("[ERROR] Recovery failed, forcing URL navigation...")
+                try:
+                    page.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=30000)
+                except:
+                    pass
+            
+            # Retry if we have attempts left
+            if attempt < max_retries:
+                continue
+                
+            if metrics is not None:
+                metrics.end_vehicle(ref_num, status="failed", error=str(e))
+            return False
+    
+    # Should never reach here, but just in case
+    return False
 
 
 def run():
@@ -239,6 +310,10 @@ def run():
 
                 if process_single_vehicle(page, ref_num, tracking, metrics=metrics):
                     success_count += 1
+                    # Add a small delay after successful download to avoid overwhelming the server
+                    if idx < len(refs_to_process):  # Don't delay after the last one
+                        import time
+                        time.sleep(1)  # 1 second pause between successful downloads
                 else:
                     fail_count += 1
 

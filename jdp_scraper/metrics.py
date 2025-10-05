@@ -73,7 +73,7 @@ class RunMetrics:
         self.metadata: Dict[str, str] = {}
         self.output_dir = Path(output_dir or config.RUN_DIR)
 
-    def add_metadata(self, **kwargs: str) -> None:
+    def add_metadata(self, **kwargs) -> None:
         """Attach additional metadata about the run (e.g., settings)."""
 
         for key, value in kwargs.items():
