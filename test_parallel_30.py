@@ -1,33 +1,41 @@
 """
-Test script for parallel processing with 30 vehicles and 2 contexts.
+Test script for parallel processing with 30 vehicles and 5 workers.
 
-This test validates the parallel processing system with a larger batch.
+This test validates the parallel processing system with optimal worker count.
 """
 import os
 import sys
 
 # Set test configuration
 os.environ["MAX_DOWNLOADS"] = "30"
-os.environ["CONCURRENT_CONTEXTS"] = "2"
+os.environ["CONCURRENT_CONTEXTS"] = "5"  # Optimal for 30 vehicles
 os.environ["HEADLESS"] = "false"  # Visible for monitoring
 os.environ["BLOCK_RESOURCES"] = "false"  # Show styling for visibility
 
 print("="*60)
-print("PARALLEL PROCESSING TEST - 30 VEHICLES, 2 CONTEXTS")
+print("PARALLEL PROCESSING TEST - 30 VEHICLES, 5 WORKERS")
 print("="*60)
 print("Configuration:")
 print(f"  MAX_DOWNLOADS: {os.environ['MAX_DOWNLOADS']}")
-print(f"  CONCURRENT_CONTEXTS: {os.environ['CONCURRENT_CONTEXTS']}")
+print(f"  CONCURRENT_WORKERS: {os.environ['CONCURRENT_CONTEXTS']}")
 print(f"  HEADLESS: {os.environ['HEADLESS']}")
 print(f"  BLOCK_RESOURCES: {os.environ['BLOCK_RESOURCES']}")
 print("="*60)
 print()
+print("Architecture:")
+print("  - Single browser context (one login)")
+print("  - 5 worker pages (tabs) sharing session")
+print("  - Task queue for coordination")
+print("  - Sequential access to inventory (no interference)")
+print()
 print("Expected Results:")
-print("  - Both contexts initialize successfully")
-print("  - Vehicles processed in parallel (2 at a time)")
+print("  - All 5 workers initialize successfully")
+print("  - Vehicles processed in parallel (5 at a time)")
 print("  - 28-30 PDFs downloaded (93-100% success rate)")
 print("  - No duplicate downloads")
+print("  - No page interference")
 print("  - Script blocks until complete")
+print("  - Runtime: ~3-4 minutes")
 print("="*60)
 print()
 

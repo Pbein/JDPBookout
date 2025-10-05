@@ -40,7 +40,14 @@ Environment variables (`.env` file):
 - **HEADLESS**: `true` = no visible browser, `false` = show browser (default: false)
 - **BLOCK_RESOURCES**: `true` = block CSS/images for 30-50% speedup, `false` = show styling (default: true)
 - **MAX_DOWNLOADS**: Maximum PDFs per run, e.g., `10` for testing, `9999` for all (default: 9999)
-- **CONCURRENT_CONTEXTS**: Number of parallel contexts, 2-7 recommended (default: 5)
+- **CONCURRENT_CONTEXTS**: Number of parallel workers, 5-7 recommended (default: 5)
+
+**Worker Count Guide:**
+- **5 workers:** Most stable, ~7-8 hours for full inventory (1,820 vehicles)
+- **7 workers:** Optimal balance, ~6-7 hours ⭐ **RECOMMENDED**
+- **10 workers:** Maximum speed, ~5-6 hours (requires good system resources)
+
+📖 See `PRODUCTION_GUIDE.md` for detailed configuration and production run instructions.
 
 Defined in `jdp_scraper/config.py`:
   - Base URLs (login, inventory, vehicle)

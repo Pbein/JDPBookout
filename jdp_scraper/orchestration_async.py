@@ -32,6 +32,47 @@ from jdp_scraper.inventory_async import (
 from jdp_scraper.vehicle_async import download_vehicle_pdf_async
 
 
+async def watchdog(
+    task_queue: AsyncTaskQueue,
+    check_interval: int = 60,
+    timeout_seconds: int = 300
+) -> None:
+    """
+    Monitor for stuck tasks and recover them.
+    
+    Args:
+        task_queue: Task queue to monitor
+        check_interval: How often to check (seconds)
+        timeout_seconds: How long before a task is considered stuck
+    """
+    print("[WATCHDOG] Started")
+    
+    while True:
+        await asyncio.sleep(check_interval)
+        
+        # Check if queue is empty
+        if await task_queue.is_empty():
+            print("[WATCHDOG] All tasks complete, shutting down")
+            break
+        
+        # Check for stuck tasks
+        stuck_tasks = await task_queue.get_stuck_tasks(timeout_seconds)
+        
+        if stuck_tasks:
+            print(f"[WATCHDOG] Found {len(stuck_tasks)} stuck tasks")
+            
+            for task in stuck_tasks:
+                print(f"[WATCHDOG] Recovering stuck task: {task}")
+                await task_queue.recover_stuck_task(task)
+        
+        # Print statistics every check
+        stats = await task_queue.get_statistics()
+        print(f"[WATCHDOG] Progress: {stats['completed']}/{stats['total']} completed "
+              f"({stats['success_rate']:.1f}% success rate)")
+    
+    print("[WATCHDOG] Stopped")
+
+
 async def setup_resource_blocking(context: BrowserContext) -> None:
     """
     Set up resource blocking for a context to improve performance.
@@ -399,9 +440,19 @@ async def run_async() -> None:
                 )
                 workers.append(worker_task)
             
+            # Start watchdog
+            print(f"\n[WATCHDOG] Starting watchdog monitor...")
+            watchdog_task = asyncio.create_task(
+                watchdog(
+                    task_queue=task_queue,
+                    check_interval=60,  # Check every minute
+                    timeout_seconds=300  # 5 minutes = stuck
+                )
+            )
+            
             # Wait for all workers to complete (BLOCKING)
             print(f"\n[PARALLEL] Workers processing tasks...")
-            await asyncio.gather(*workers)
+            await asyncio.gather(*workers, watchdog_task)
             
             # Print final queue statistics
             await task_queue.print_statistics()
