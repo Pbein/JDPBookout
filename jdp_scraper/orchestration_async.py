@@ -170,9 +170,10 @@ async def initialize_context_async(context: BrowserContext, context_id: int) -> 
     # Wait a moment for page to settle after login
     await asyncio.sleep(2)
     
-    # Navigate to inventory
-    if not await navigate_to_inventory_async(page):
-        raise Exception(f"Context {context_id}: Failed to navigate to inventory")
+    # Navigate directly to inventory URL (more reliable than clicking link)
+    print(f"[CONTEXT {context_id}] Navigating to inventory URL...")
+    await page.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=20000)
+    await asyncio.sleep(2)
     
     # Clear filters
     await clear_filters_async(page)
