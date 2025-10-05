@@ -51,16 +51,19 @@ async def download_vehicle_pdf_async(page: Page, reference_number: str, save_dir
         
         print("Clicking 'Create PDF' button...")
         
-        # Wait for new page/tab to open when clicking Create PDF
-        async with page.context.expect_page() as new_page_info:
-            await create_pdf_button.click()
-        
-        # Get the new page (PDF tab)
-        pdf_page = await new_page_info.value
-        pdf_url = pdf_page.url
-        print(f"New tab opened: {pdf_url}")
+        # Initialize pdf_page to None so we can track if it was created
+        pdf_page = None
         
         try:
+            # Wait for new page/tab to open when clicking Create PDF
+            async with page.context.expect_page() as new_page_info:
+                await create_pdf_button.click()
+            
+            # Get the new page (PDF tab)
+            pdf_page = await new_page_info.value
+            pdf_url = pdf_page.url
+            print(f"New tab opened: {pdf_url}")
+            
             # Wait for PDF to load
             print("Waiting for PDF to load...")
             await pdf_page.wait_for_load_state("load", timeout=30000)
@@ -98,24 +101,27 @@ async def download_vehicle_pdf_async(page: Page, reference_number: str, save_dir
             return pdf_path
             
         finally:
-            # ALWAYS close the PDF tab, even if download fails
-            print("Closing PDF tab...")
-            try:
-                if not pdf_page.is_closed():
-                    await pdf_page.close()
-            except Exception as e:
-                print(f"[WARNING] Error closing PDF tab: {e}")
+            # ALWAYS close the PDF tab if it was created, even if download fails
+            if pdf_page is not None:
+                print("Closing PDF tab...")
+                try:
+                    if not pdf_page.is_closed():
+                        await pdf_page.close()
+                        print("PDF tab closed successfully")
+                except Exception as e:
+                    print(f"[WARNING] Error closing PDF tab: {e}")
         
     except Exception as e:
         print(f"[ERROR] Failed to download PDF: {e}")
         
-        # Try to close the PDF tab if it was opened
-        # NOTE: In parallel mode, we ONLY close the PDF tab, NOT other workers' pages!
+        # Safety check: Close any PDF tabs that might have been opened
+        # Look for tabs with "GetPdfReport" in the URL (PDF viewer tabs)
         try:
-            if 'pdf_page' in locals() and pdf_page and not pdf_page.is_closed():
-                print(f"Closing stuck PDF tab: {pdf_page.url}")
-                await pdf_page.close()
+            for context_page in page.context.pages:
+                if "GetPdfReport" in context_page.url and not context_page.is_closed():
+                    print(f"[CLEANUP] Closing orphaned PDF tab: {context_page.url}")
+                    await context_page.close()
         except Exception as cleanup_error:
-            print(f"[WARNING] Could not cleanup PDF tab: {cleanup_error}")
+            print(f"[WARNING] Could not cleanup orphaned PDF tabs: {cleanup_error}")
         
         return ""
