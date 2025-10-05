@@ -101,5 +101,15 @@ def download_vehicle_pdf(page: Page, reference_number: str, save_directory: str 
         
     except Exception as e:
         print(f"[ERROR] Failed to download PDF: {e}")
+        
+        # Try to close any open PDF tabs that might be stuck
+        try:
+            for context_page in page.context.pages:
+                if context_page != page and not context_page.is_closed():
+                    print(f"Closing stuck tab: {context_page.url}")
+                    context_page.close()
+        except Exception as cleanup_error:
+            print(f"[WARNING] Could not cleanup tabs: {cleanup_error}")
+        
         return ""
 
