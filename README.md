@@ -24,18 +24,27 @@ This project will automate downloading vehicle PDFs from JD Power Values Online 
    ```bash
    python -m playwright install chromium
    ```
-4. Create a `.env` from `.env.example` and set credentials:
+4. Create a `.env` file and set credentials:
    ```
    JD_USER=your_username
    JD_PASS=your_password
    HEADLESS=false
+   BLOCK_RESOURCES=false
+   MAX_DOWNLOADS=10
+   CONCURRENT_CONTEXTS=2
    ```
 
 ### Config
-- Defined in `jdp_scraper/config.py` (placeholders now):
+Environment variables (`.env` file):
+- **JD_USER / JD_PASS**: Your JD Power credentials
+- **HEADLESS**: `true` = no visible browser, `false` = show browser (default: false)
+- **BLOCK_RESOURCES**: `true` = block CSS/images for 30-50% speedup, `false` = show styling (default: true)
+- **MAX_DOWNLOADS**: Maximum PDFs per run, e.g., `10` for testing, `9999` for all (default: 9999)
+- **CONCURRENT_CONTEXTS**: Number of parallel contexts, 2-7 recommended (default: 5)
+
+Defined in `jdp_scraper/config.py`:
   - Base URLs (login, inventory, vehicle)
   - Timeouts and retry counts
-  - `HEADLESS` flag from env
   - Download directory naming (e.g., `YYYY-MM-DD`)
 
 ### Selectors
