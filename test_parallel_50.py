@@ -12,7 +12,7 @@ import time
 os.environ["MAX_DOWNLOADS"] = "50"
 os.environ["CONCURRENT_CONTEXTS"] = "7"  # Production-recommended worker count
 os.environ["HEADLESS"] = "false"  # Visible for monitoring
-os.environ["BLOCK_RESOURCES"] = "true"  # Production setting for speed
+os.environ["BLOCK_RESOURCES"] = "false"  # TESTING: Disable to verify tab closure works
 
 print("="*70)
 print("PRODUCTION VALIDATION TEST - 50 VEHICLES, 7 WORKERS")
