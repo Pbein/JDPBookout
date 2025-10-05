@@ -2,7 +2,7 @@
 
 **Branch:** `automation-parallel-2`  
 **Date:** 2025-10-05  
-**Status:** ✅ **VALIDATED & READY FOR 30-VEHICLE TEST**
+**Status:** ✅ **PHASE 2 COMPLETE - TASK QUEUE IMPLEMENTED**
 
 ---
 
@@ -11,8 +11,9 @@
 All components have been implemented following the directive in `docs/PARALLEL_PROCESSING_DIRECTIVE.md`.
 
 ### Core Infrastructure ✅
-- [x] `jdp_scraper/async_utils.py` - AsyncSemaphorePool for concurrency control
-- [x] `jdp_scraper/context_pool.py` - Browser context pooling with resource blocking
+- [x] `jdp_scraper/async_utils.py` - AsyncSemaphorePool for concurrency control (deprecated)
+- [x] `jdp_scraper/page_pool.py` - **NEW:** Single context with multiple pages
+- [x] `jdp_scraper/task_queue.py` - **NEW:** AsyncTaskQueue for work distribution
 - [x] `jdp_scraper/checkpoint.py` - Thread-safe with asyncio.Lock
 
 ### Async Modules ✅
@@ -22,7 +23,7 @@ All components have been implemented following the directive in `docs/PARALLEL_P
 - [x] `jdp_scraper/vehicle_async.py` - Async PDF download
 
 ### Orchestration ✅
-- [x] `jdp_scraper/orchestration_async.py` - Main orchestrator with pre-assignment strategy
+- [x] `jdp_scraper/orchestration_async.py` - **UPDATED:** Worker pattern with task queue
 - [x] `main_async.py` - Entry point with blocking execution
 
 ### Testing ✅
@@ -34,15 +35,25 @@ All components have been implemented following the directive in `docs/PARALLEL_P
 
 ## 🎯 Key Features Implemented
 
-### 1. **Pre-Assignment Strategy**
-Vehicles are pre-assigned to contexts before processing starts, preventing duplicate downloads:
+### 1. **Task Queue Pattern** (UPDATED)
+Workers pull tasks from a shared queue, preventing duplicate downloads and page interference:
 ```python
-# Each context gets a specific list of vehicles
-assignments = {
-    0: [ref1, ref3, ref5, ...],  # Context 0's vehicles
-    1: [ref2, ref4, ref6, ...],  # Context 1's vehicles
-}
+# Workers pull from queue sequentially
+task_queue = AsyncTaskQueue(pending_refs)
+
+# Each worker processes one vehicle at a time
+while True:
+    ref = await task_queue.get_task(worker_id)
+    await process_vehicle(ref)
+    await task_queue.mark_complete(ref)
 ```
+
+**Benefits:**
+- ✅ No page interference (sequential access to inventory table)
+- ✅ Dynamic load balancing
+- ✅ Automatic retry for failed tasks
+- ✅ Timeout handling (3 minutes per vehicle)
+- ✅ Stuck task recovery
 
 ### 2. **Blocking Execution**
 Script uses `asyncio.run()` which blocks until all work is complete:

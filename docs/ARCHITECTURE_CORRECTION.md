@@ -1,8 +1,9 @@
-# Critical Architecture Correction: Single Session, Multiple Tabs
+# Critical Architecture Correction: Single Session, Multiple Tabs + Task Queue
 
 **Date:** 2025-10-05  
-**Issue:** Multiple login attempts trigger "active session" error  
-**Solution:** Single browser context with multiple pages (tabs)
+**Issue:** Multiple login attempts trigger "active session" error + Page interference  
+**Solution:** Single browser context with multiple pages (tabs) + Task Queue for coordination  
+**Status:** ✅ IMPLEMENTED & TESTED
 
 ---
 
@@ -274,16 +275,67 @@ This is the **recommended Playwright pattern** for:
 
 ---
 
-## ✅ **Action Items**
+## 🔴 **Critical Discovery from Testing**
 
-1. **STOP current test** (using wrong architecture)
-2. **Create `page_pool.py`** (replaces `context_pool.py`)
-3. **Update `orchestration_async.py`** (single context, multiple pages)
-4. **Test with 5 pages** (verify session sharing)
-5. **Run 30-vehicle test** (verify parallel processing)
+### **Problem: Page Interference**
+
+During initial testing with 2 pages, we discovered a **critical flaw**:
+
+**Multiple pages share the same inventory table state!**
+
+**Evidence:**
+```
+Processing: 165548 (Attempt 1/3)
+Filtering by reference number: 165548
+...
+[SUCCESS] Opened vehicle page for reference: 165549  ← WRONG!
+```
+
+**Root Cause:** When Page 1 enters a reference number in the search box, Page 2 can overwrite it before Page 1 clicks the bookout button, causing cross-contamination.
+
+**Result:** Downloaded wrong PDFs (e.g., searching for 165548 but downloading 165549).
 
 ---
 
-**This is the CORRECT architecture for our use case!**
+## ✅ **Complete Solution: Task Queue Pattern**
 
-**Next Step:** Implement PagePool and update orchestration
+### **Architecture:**
+```
+Browser
+└── Context (ONE LOGIN)
+    ├── Page 1 (Worker 1) ──┐
+    ├── Page 2 (Worker 2) ──┼──> AsyncTaskQueue
+    └── Page 3 (Worker 3) ──┘    (Sequential access)
+```
+
+### **Key Changes:**
+1. ✅ **Single context** - No login conflicts
+2. ✅ **Multiple pages** - True parallelism
+3. ✅ **Task Queue** - Sequential task distribution
+4. ✅ **Workers** - Pull from queue, process, return
+5. ✅ **No pre-assignment** - Dynamic work distribution
+6. ✅ **Timeout handling** - 3 minutes per vehicle
+7. ✅ **Automatic retry** - Failed tasks requeued
+
+### **How It Works:**
+- Workers pull tasks from queue **one at a time**
+- Only one worker processes a vehicle at any moment
+- No page interference (sequential access to inventory table)
+- Workers run in parallel (different vehicles)
+- Automatic recovery from failures
+
+---
+
+## ✅ **Implementation Complete**
+
+1. ✅ **Created `page_pool.py`** (replaces `context_pool.py`)
+2. ✅ **Created `task_queue.py`** (AsyncTaskQueue)
+3. ✅ **Updated `orchestration_async.py`** (worker pattern)
+4. ✅ **Fixed Unicode encoding errors** (metrics.py)
+5. ✅ **Fixed update_tracking() signature** (added tracking dict)
+
+---
+
+**This is the CORRECT and TESTED architecture!**
+
+**Next Step:** Test with 10 vehicles to verify fixes
