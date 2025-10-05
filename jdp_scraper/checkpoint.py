@@ -5,7 +5,10 @@ This module provides mechanisms to:
 - Detect when the automation is stuck (consecutive failures)
 - Recover from failures by restarting from the last good state
 - Validate that forward progress is being made
+
+Thread-safe for async operations using asyncio.Lock.
 """
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -14,7 +17,7 @@ from jdp_scraper import config
 
 
 class ProgressCheckpoint:
-    """Manages checkpoints for resumable downloads."""
+    """Manages checkpoints for resumable downloads (thread-safe for async)."""
     
     def __init__(self, checkpoint_file: str = None):
         """
@@ -35,6 +38,9 @@ class ProgressCheckpoint:
         self.browser_restarts = 0
         self.started_at = datetime.utcnow().isoformat()
         self.last_checkpoint_at = None
+        
+        # Thread-safety for async operations
+        self._lock = asyncio.Lock()
         
         # Load existing checkpoint if it exists
         self.load()
@@ -67,61 +73,64 @@ class ProgressCheckpoint:
         
         return False
     
-    def save(self) -> bool:
+    async def save(self) -> bool:
         """
-        Save current checkpoint to disk.
+        Save current checkpoint to disk (thread-safe).
         
         Returns:
             True if saved successfully, False otherwise
         """
-        try:
-            os.makedirs(os.path.dirname(self.checkpoint_file), exist_ok=True)
-            
-            data = {
-                'consecutive_failures': self.consecutive_failures,
-                'last_successful_ref': self.last_successful_ref,
-                'total_processed': self.total_processed,
-                'total_succeeded': self.total_succeeded,
-                'total_failed': self.total_failed,
-                'browser_restarts': self.browser_restarts,
-                'started_at': self.started_at,
-                'last_checkpoint_at': datetime.utcnow().isoformat()
-            }
-            
-            with open(self.checkpoint_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            
-            self.last_checkpoint_at = data['last_checkpoint_at']
-            return True
-            
-        except Exception as e:
-            print(f"[CHECKPOINT] Could not save checkpoint: {e}")
-            return False
+        async with self._lock:
+            try:
+                os.makedirs(os.path.dirname(self.checkpoint_file), exist_ok=True)
+                
+                data = {
+                    'consecutive_failures': self.consecutive_failures,
+                    'last_successful_ref': self.last_successful_ref,
+                    'total_processed': self.total_processed,
+                    'total_succeeded': self.total_succeeded,
+                    'total_failed': self.total_failed,
+                    'browser_restarts': self.browser_restarts,
+                    'started_at': self.started_at,
+                    'last_checkpoint_at': datetime.utcnow().isoformat()
+                }
+                
+                with open(self.checkpoint_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                self.last_checkpoint_at = data['last_checkpoint_at']
+                return True
+                
+            except Exception as e:
+                print(f"[CHECKPOINT] Could not save checkpoint: {e}")
+                return False
     
-    def record_success(self, reference_number: str) -> None:
+    async def record_success(self, reference_number: str) -> None:
         """
-        Record a successful download.
+        Record a successful download (thread-safe).
         
         Args:
             reference_number: The reference number that succeeded
         """
-        self.consecutive_failures = 0
-        self.last_successful_ref = reference_number
-        self.total_processed += 1
-        self.total_succeeded += 1
-        self.save()
+        async with self._lock:
+            self.consecutive_failures = 0
+            self.last_successful_ref = reference_number
+            self.total_processed += 1
+            self.total_succeeded += 1
+        await self.save()
     
-    def record_failure(self, reference_number: str) -> None:
+    async def record_failure(self, reference_number: str) -> None:
         """
-        Record a failed download.
+        Record a failed download (thread-safe).
         
         Args:
             reference_number: The reference number that failed
         """
-        self.consecutive_failures += 1
-        self.total_processed += 1
-        self.total_failed += 1
-        self.save()
+        async with self._lock:
+            self.consecutive_failures += 1
+            self.total_processed += 1
+            self.total_failed += 1
+        await self.save()
     
     def is_stuck(self, threshold: int = 5) -> bool:
         """
@@ -135,10 +144,11 @@ class ProgressCheckpoint:
         """
         return self.consecutive_failures >= threshold
     
-    def record_browser_restart(self) -> None:
-        """Record that the browser was restarted for recovery."""
-        self.browser_restarts += 1
-        self.save()
+    async def record_browser_restart(self) -> None:
+        """Record that the browser was restarted for recovery (thread-safe)."""
+        async with self._lock:
+            self.browser_restarts += 1
+        await self.save()
     
     def get_status(self) -> Dict[str, any]:
         """
@@ -170,12 +180,12 @@ class ProgressCheckpoint:
         print(f"Success rate       : {status['success_rate']:.1f}%")
         print(f"Consecutive fails  : {status['consecutive_failures']}")
         print(f"Last successful    : {status['last_successful_ref']}")
-        print(f"Status             : {'⚠️ STUCK' if status['is_stuck'] else '✓ OK'}")
+        print(f"Status             : {'[STUCK]' if status['is_stuck'] else '[OK]'}")
         print(f"{'='*60}\n")
     
-    def reset_if_stuck(self) -> bool:
+    async def reset_if_stuck(self) -> bool:
         """
-        Reset consecutive failure counter if we're stuck.
+        Reset consecutive failure counter if we're stuck (thread-safe).
         Useful for forcing a fresh start after recovery attempts.
         
         Returns:
@@ -183,7 +193,8 @@ class ProgressCheckpoint:
         """
         if self.is_stuck():
             print(f"[CHECKPOINT] Resetting stuck state (was {self.consecutive_failures} consecutive failures)")
-            self.consecutive_failures = 0
-            self.save()
+            async with self._lock:
+                self.consecutive_failures = 0
+            await self.save()
             return True
         return False
