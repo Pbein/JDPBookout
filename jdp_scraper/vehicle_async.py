@@ -60,55 +60,62 @@ async def download_vehicle_pdf_async(page: Page, reference_number: str, save_dir
         pdf_url = pdf_page.url
         print(f"New tab opened: {pdf_url}")
         
-        # Wait for PDF to load
-        print("Waiting for PDF to load...")
-        await pdf_page.wait_for_load_state("load", timeout=30000)
-        await asyncio.sleep(2)  # Extra wait for PDF to fully load
-        
-        # Download the PDF file directly from the URL
-        pdf_filename = f"{reference_number}.pdf"
-        pdf_path = os.path.join(save_directory, pdf_filename)
-        
-        print(f"Downloading PDF from URL to: {pdf_path}")
-        
-        # Use the page context to download the PDF
-        import requests  # Keep requests sync for simplicity
-        
-        # Get cookies from the browser context for authenticated download
-        cookies = await pdf_page.context.cookies()
-        
-        # Build cookie dict for requests
-        cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
-        
-        # Download the PDF using requests with the browser's session
-        # Note: requests.get is sync, but it's fast for single file downloads
-        response = requests.get(pdf_url, cookies=cookie_dict, stream=True)
-        
-        if response.status_code == 200:
-            with open(pdf_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            print(f"PDF file downloaded successfully: {os.path.getsize(pdf_path)} bytes")
-        else:
-            print(f"[WARNING] HTTP {response.status_code} when downloading PDF")
-        
-        # Close the PDF tab
-        print("Closing PDF tab...")
-        await pdf_page.close()
-        
-        print(f"[SUCCESS] PDF downloaded: {pdf_path}")
-        return pdf_path
+        try:
+            # Wait for PDF to load
+            print("Waiting for PDF to load...")
+            await pdf_page.wait_for_load_state("load", timeout=30000)
+            await asyncio.sleep(2)  # Extra wait for PDF to fully load
+            
+            # Download the PDF file directly from the URL
+            pdf_filename = f"{reference_number}.pdf"
+            pdf_path = os.path.join(save_directory, pdf_filename)
+            
+            print(f"Downloading PDF from URL to: {pdf_path}")
+            
+            # Use the page context to download the PDF
+            import requests  # Keep requests sync for simplicity
+            
+            # Get cookies from the browser context for authenticated download
+            cookies = await pdf_page.context.cookies()
+            
+            # Build cookie dict for requests
+            cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+            
+            # Download the PDF using requests with the browser's session
+            # Note: requests.get is sync, but it's fast for single file downloads
+            response = requests.get(pdf_url, cookies=cookie_dict, stream=True)
+            
+            if response.status_code == 200:
+                with open(pdf_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                print(f"PDF file downloaded successfully: {os.path.getsize(pdf_path)} bytes")
+            else:
+                print(f"[WARNING] HTTP {response.status_code} when downloading PDF")
+                raise Exception(f"HTTP {response.status_code}")
+            
+            print(f"[SUCCESS] PDF downloaded: {pdf_path}")
+            return pdf_path
+            
+        finally:
+            # ALWAYS close the PDF tab, even if download fails
+            print("Closing PDF tab...")
+            try:
+                if not pdf_page.is_closed():
+                    await pdf_page.close()
+            except Exception as e:
+                print(f"[WARNING] Error closing PDF tab: {e}")
         
     except Exception as e:
         print(f"[ERROR] Failed to download PDF: {e}")
         
-        # Try to close any open PDF tabs that might be stuck
+        # Try to close the PDF tab if it was opened
+        # NOTE: In parallel mode, we ONLY close the PDF tab, NOT other workers' pages!
         try:
-            for context_page in page.context.pages:
-                if context_page != page and not context_page.is_closed():
-                    print(f"Closing stuck tab: {context_page.url}")
-                    await context_page.close()
+            if 'pdf_page' in locals() and pdf_page and not pdf_page.is_closed():
+                print(f"Closing stuck PDF tab: {pdf_page.url}")
+                await pdf_page.close()
         except Exception as cleanup_error:
-            print(f"[WARNING] Could not cleanup tabs: {cleanup_error}")
+            print(f"[WARNING] Could not cleanup PDF tab: {cleanup_error}")
         
         return ""
