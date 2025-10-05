@@ -243,11 +243,11 @@ class RunMetrics:
             error_counts[error_type] = error_counts.get(error_type, 0) + 1
         
         print("\n" + "="*70)
-        print(" "*20 + "📊 FINAL RUN REPORT")
+        print(" "*20 + "FINAL RUN REPORT")
         print("="*70)
         
         # Section 1: Run Overview
-        print("\n🕐 RUN OVERVIEW")
+        print("\n[RUN OVERVIEW]")
         print("-" * 70)
         print(f"  Started at (UTC)    : {self.summary.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"  Completed at (UTC)  : {self.summary.completed_at.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -255,15 +255,15 @@ class RunMetrics:
         print(f"  Total inventory     : {self.summary.total_inventory:,} vehicles")
         
         # Section 2: Processing Results
-        print(f"\n📈 PROCESSING RESULTS")
+        print(f"\n[PROCESSING RESULTS]")
         print("-" * 70)
         print(f"  Attempted this run  : {self.summary.attempted}")
-        print(f"  ✓ Succeeded         : {self.summary.succeeded} ({self.summary.succeeded/self.summary.attempted*100:.1f}%)")
-        print(f"  ✗ Failed            : {self.summary.failed} ({self.summary.failed/self.summary.attempted*100:.1f}%)")
+        print(f"  [SUCCESS] Succeeded : {self.summary.succeeded} ({self.summary.succeeded/self.summary.attempted*100:.1f}%)")
+        print(f"  [FAILED] Failed     : {self.summary.failed} ({self.summary.failed/self.summary.attempted*100:.1f}%)")
         print(f"  Remaining           : {self.summary.remaining:,}")
         
         # Section 3: Performance Metrics
-        print(f"\n⚡ PERFORMANCE METRICS")
+        print(f"\n[PERFORMANCE METRICS]")
         print("-" * 70)
         if avg_success is None:
             print("  Average per-vehicle : N/A (no successful downloads)")
@@ -298,7 +298,7 @@ class RunMetrics:
         
         # Section 6: Projections
         if avg_success and additional_targets:
-            print(f"\n🎯 PROJECTIONS FOR FULL INVENTORY")
+            print(f"\n[PROJECTIONS FOR FULL INVENTORY]")
             print("-" * 70)
             for target in additional_targets:
                 estimate = self.estimate_total_time(target)
@@ -309,26 +309,26 @@ class RunMetrics:
                 print(f"  {target:,} vehicles: {estimate_str} (~{hours:.1f} hours)")
         
         # Section 7: Recommendations
-        print(f"\n💡 RECOMMENDATIONS")
+        print(f"\n[RECOMMENDATIONS]")
         print("-" * 70)
         if self.summary.failed > 0:
             fail_rate = self.summary.failed / self.summary.attempted * 100
             if fail_rate > 20:
-                print("  ⚠️  High failure rate detected (>20%)")
+                print("  [WARNING] High failure rate detected (>20%)")
                 print("     Consider investigating network/server issues")
             elif fail_rate > 10:
-                print("  ⚠️  Moderate failure rate (>10%)")
+                print("  [WARNING] Moderate failure rate (>10%)")
                 print("     Monitor for patterns in error types")
             else:
-                print("  ✓ Acceptable failure rate (<10%)")
+                print("  [OK] Acceptable failure rate (<10%)")
         else:
-            print("  ✓ Perfect run - no failures!")
+            print("  [OK] Perfect run - no failures!")
         
         if self.summary.remaining > 0:
-            print(f"  → Run again to process remaining {self.summary.remaining:,} vehicles")
+            print(f"  [ACTION] Run again to process remaining {self.summary.remaining:,} vehicles")
             print(f"     Program will resume from checkpoint automatically")
         else:
-            print("  ✓ All vehicles processed!")
+            print("  [OK] All vehicles processed!")
         
         print("\n" + "="*70 + "\n")
     
