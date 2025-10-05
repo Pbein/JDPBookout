@@ -108,18 +108,36 @@ async def download_vehicle_pdf_async(page: Page, reference_number: str, save_dir
                     if pdf_page.is_closed():
                         print("PDF tab already closed")
                     else:
-                        await pdf_page.close()
-                        print("PDF tab closed successfully")
+                        # Close with timeout to prevent hanging
+                        try:
+                            await asyncio.wait_for(pdf_page.close(), timeout=5.0)
+                            print("PDF tab closed successfully")
+                        except asyncio.TimeoutError:
+                            print("[WARNING] PDF tab close timed out after 5s")
+                            # Force close by finding and closing the tab
+                            for ctx_page in page.context.pages:
+                                try:
+                                    if ctx_page == pdf_page and not ctx_page.is_closed():
+                                        print("[FORCE CLOSE] Attempting force close on stuck PDF tab")
+                                        await ctx_page.close()
+                                        break
+                                except:
+                                    pass
                 except Exception as e:
                     print(f"[WARNING] Error closing PDF tab: {e}")
-                    # Try force close by checking all context pages
-                    try:
-                        for ctx_page in page.context.pages:
-                            if "GetPdfReport" in ctx_page.url and not ctx_page.is_closed():
-                                print(f"[FORCE CLOSE] Closing orphaned PDF tab: {ctx_page.url}")
-                                await ctx_page.close()
-                    except Exception as force_error:
-                        print(f"[WARNING] Force close failed: {force_error}")
+                
+                # Final safety check: close ANY remaining PDF tabs
+                try:
+                    await asyncio.sleep(0.5)  # Brief wait for close to complete
+                    for ctx_page in page.context.pages:
+                        if "GetPdfReport" in ctx_page.url and not ctx_page.is_closed():
+                            print(f"[CLEANUP] Closing orphaned PDF tab: {ctx_page.url}")
+                            try:
+                                await asyncio.wait_for(ctx_page.close(), timeout=3.0)
+                            except:
+                                pass
+                except Exception as cleanup_error:
+                    print(f"[WARNING] Cleanup failed: {cleanup_error}")
         
     except Exception as e:
         print(f"[ERROR] Failed to download PDF: {e}")
