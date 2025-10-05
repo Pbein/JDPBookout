@@ -350,7 +350,8 @@ def run():
                         accept_license(page)
                         navigate_to_inventory(page)
                         
-                        # Reset stuck state
+                        # Reset stuck state and record restart
+                        checkpoint.record_browser_restart()
                         checkpoint.reset_if_stuck()
                         print("[RECOVERY] Browser recovered successfully!")
                         
@@ -420,4 +421,7 @@ def run():
                 )
             metrics_path = metrics.save()
             print(f"[METRICS] Saved timing data to {metrics_path}")
-            metrics.print_console_report(additional_targets=[2000])
+            
+            # Print comprehensive final report with checkpoint data
+            checkpoint_data = checkpoint.get_status()
+            metrics.print_console_report(additional_targets=[2000], checkpoint_data=checkpoint_data)

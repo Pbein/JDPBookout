@@ -32,6 +32,7 @@ class ProgressCheckpoint:
         self.total_processed = 0
         self.total_succeeded = 0
         self.total_failed = 0
+        self.browser_restarts = 0
         self.started_at = datetime.utcnow().isoformat()
         self.last_checkpoint_at = None
         
@@ -54,6 +55,7 @@ class ProgressCheckpoint:
                     self.total_processed = data.get('total_processed', 0)
                     self.total_succeeded = data.get('total_succeeded', 0)
                     self.total_failed = data.get('total_failed', 0)
+                    self.browser_restarts = data.get('browser_restarts', 0)
                     self.started_at = data.get('started_at', self.started_at)
                     self.last_checkpoint_at = data.get('last_checkpoint_at')
                     print(f"[CHECKPOINT] Loaded existing checkpoint")
@@ -81,6 +83,7 @@ class ProgressCheckpoint:
                 'total_processed': self.total_processed,
                 'total_succeeded': self.total_succeeded,
                 'total_failed': self.total_failed,
+                'browser_restarts': self.browser_restarts,
                 'started_at': self.started_at,
                 'last_checkpoint_at': datetime.utcnow().isoformat()
             }
@@ -132,6 +135,11 @@ class ProgressCheckpoint:
         """
         return self.consecutive_failures >= threshold
     
+    def record_browser_restart(self) -> None:
+        """Record that the browser was restarted for recovery."""
+        self.browser_restarts += 1
+        self.save()
+    
     def get_status(self) -> Dict[str, any]:
         """
         Get current checkpoint status.
@@ -145,6 +153,7 @@ class ProgressCheckpoint:
             'total_processed': self.total_processed,
             'total_succeeded': self.total_succeeded,
             'total_failed': self.total_failed,
+            'browser_restarts': self.browser_restarts,
             'success_rate': (self.total_succeeded / self.total_processed * 100) if self.total_processed > 0 else 0,
             'is_stuck': self.is_stuck()
         }

@@ -213,8 +213,8 @@ class RunMetrics:
             json.dump(self.to_dict(), file, indent=2)
         return output_path
 
-    def print_console_report(self, *, additional_targets: Optional[List[int]] = None) -> None:
-        """Display a concise summary of the run and throughput estimates."""
+    def print_console_report(self, *, additional_targets: Optional[List[int]] = None, checkpoint_data: Optional[dict] = None) -> None:
+        """Display a comprehensive summary of the run with performance metrics and checkpoint data."""
 
         if self.summary is None:
             print("[METRICS] Summary unavailable; run did not complete cleanly.")
@@ -222,30 +222,136 @@ class RunMetrics:
 
         runtime_str = str(self.summary.runtime).split(".")[0]
         avg_success = self.average_vehicle_duration(statuses=("success",))
-        print("\n=== PERFORMANCE REPORT ===")
-        print(f"Run start (UTC): {self.summary.started_at.isoformat()}" )
-        print(f"Run end   (UTC): {self.summary.completed_at.isoformat()}" )
-        print(f"Total runtime : {runtime_str}")
-        print(f"Total inventory records : {self.summary.total_inventory}")
-        print(f"Attempted this run       : {self.summary.attempted}")
-        print(f"Succeeded                : {self.summary.succeeded}")
-        print(f"Failed                   : {self.summary.failed}")
-        print(f"Remaining                : {self.summary.remaining}")
-        if avg_success is None:
-            print("Average per-PDF duration : N/A (no successful downloads recorded)")
+        
+        # Calculate additional statistics
+        failed_vehicles = [v for v in self.vehicles if v.status == "failed"]
+        success_vehicles = [v for v in self.vehicles if v.status == "success"]
+        
+        # Get min/max/median for successful downloads
+        if success_vehicles:
+            success_durations = sorted([v.duration_seconds for v in success_vehicles])
+            min_duration = success_durations[0]
+            max_duration = success_durations[-1]
+            median_duration = success_durations[len(success_durations) // 2]
         else:
-            print(
-                f"Average per-PDF duration : {avg_success:.2f} seconds"
-            )
-
-        if additional_targets:
+            min_duration = max_duration = median_duration = 0
+        
+        # Count error types
+        error_counts = {}
+        for vehicle in failed_vehicles:
+            error_type = vehicle.error or "unknown"
+            error_counts[error_type] = error_counts.get(error_type, 0) + 1
+        
+        print("\n" + "="*70)
+        print(" "*20 + "📊 FINAL RUN REPORT")
+        print("="*70)
+        
+        # Section 1: Run Overview
+        print("\n🕐 RUN OVERVIEW")
+        print("-" * 70)
+        print(f"  Started at (UTC)    : {self.summary.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  Completed at (UTC)  : {self.summary.completed_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  Total runtime       : {runtime_str}")
+        print(f"  Total inventory     : {self.summary.total_inventory:,} vehicles")
+        
+        # Section 2: Processing Results
+        print(f"\n📈 PROCESSING RESULTS")
+        print("-" * 70)
+        print(f"  Attempted this run  : {self.summary.attempted}")
+        print(f"  ✓ Succeeded         : {self.summary.succeeded} ({self.summary.succeeded/self.summary.attempted*100:.1f}%)")
+        print(f"  ✗ Failed            : {self.summary.failed} ({self.summary.failed/self.summary.attempted*100:.1f}%)")
+        print(f"  Remaining           : {self.summary.remaining:,}")
+        
+        # Section 3: Performance Metrics
+        print(f"\n⚡ PERFORMANCE METRICS")
+        print("-" * 70)
+        if avg_success is None:
+            print("  Average per-vehicle : N/A (no successful downloads)")
+        else:
+            print(f"  Average per-vehicle : {avg_success:.2f} seconds")
+            print(f"  Fastest vehicle     : {min_duration:.2f} seconds")
+            print(f"  Slowest vehicle     : {max_duration:.2f} seconds")
+            print(f"  Median vehicle      : {median_duration:.2f} seconds")
+            
+            # Calculate throughput
+            vehicles_per_hour = 3600 / avg_success
+            print(f"  Throughput          : {vehicles_per_hour:.1f} vehicles/hour")
+        
+        # Section 4: Checkpoint/Recovery Data
+        if checkpoint_data:
+            print(f"\n🔄 RECOVERY & CHECKPOINT DATA")
+            print("-" * 70)
+            print(f"  Total processed     : {checkpoint_data.get('total_processed', 0)}")
+            print(f"  Checkpoint saves    : {checkpoint_data.get('total_processed', 0)} (after each vehicle)")
+            print(f"  Last successful     : {checkpoint_data.get('last_successful_ref', 'N/A')}")
+            print(f"  Consecutive failures: {checkpoint_data.get('consecutive_failures', 0)}")
+            print(f"  Browser restarts    : {checkpoint_data.get('browser_restarts', 0)}")
+            success_rate = checkpoint_data.get('success_rate', 0)
+            print(f"  Overall success rate: {success_rate:.1f}%")
+        
+        # Section 5: Error Breakdown
+        if error_counts:
+            print(f"\n❌ ERROR BREAKDOWN")
+            print("-" * 70)
+            for error_type, count in sorted(error_counts.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {error_type:20s}: {count} occurrences")
+        
+        # Section 6: Projections
+        if avg_success and additional_targets:
+            print(f"\n🎯 PROJECTIONS FOR FULL INVENTORY")
+            print("-" * 70)
             for target in additional_targets:
                 estimate = self.estimate_total_time(target)
                 if estimate is None:
                     continue
                 estimate_str = str(estimate).split(".")[0]
-                print(
-                    f"Estimated time for {target:,} PDFs: {estimate_str}"
-                )
-        print("===========================\n")
+                hours = estimate.total_seconds() / 3600
+                print(f"  {target:,} vehicles: {estimate_str} (~{hours:.1f} hours)")
+        
+        # Section 7: Recommendations
+        print(f"\n💡 RECOMMENDATIONS")
+        print("-" * 70)
+        if self.summary.failed > 0:
+            fail_rate = self.summary.failed / self.summary.attempted * 100
+            if fail_rate > 20:
+                print("  ⚠️  High failure rate detected (>20%)")
+                print("     Consider investigating network/server issues")
+            elif fail_rate > 10:
+                print("  ⚠️  Moderate failure rate (>10%)")
+                print("     Monitor for patterns in error types")
+            else:
+                print("  ✓ Acceptable failure rate (<10%)")
+        else:
+            print("  ✓ Perfect run - no failures!")
+        
+        if self.summary.remaining > 0:
+            print(f"  → Run again to process remaining {self.summary.remaining:,} vehicles")
+            print(f"     Program will resume from checkpoint automatically")
+        else:
+            print("  ✓ All vehicles processed!")
+        
+        print("\n" + "="*70 + "\n")
+    
+    def get_detailed_stats(self) -> dict:
+        """Get detailed statistics for programmatic access."""
+        if not self.vehicles:
+            return {}
+        
+        success_vehicles = [v for v in self.vehicles if v.status == "success"]
+        failed_vehicles = [v for v in self.vehicles if v.status == "failed"]
+        
+        stats = {
+            "total_vehicles": len(self.vehicles),
+            "successful": len(success_vehicles),
+            "failed": len(failed_vehicles),
+        }
+        
+        if success_vehicles:
+            durations = [v.duration_seconds for v in success_vehicles]
+            stats["avg_duration"] = sum(durations) / len(durations)
+            stats["min_duration"] = min(durations)
+            stats["max_duration"] = max(durations)
+            stats["median_duration"] = sorted(durations)[len(durations) // 2]
+        
+        return stats
 
