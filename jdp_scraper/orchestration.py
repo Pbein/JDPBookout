@@ -19,6 +19,7 @@ from jdp_scraper.license_page import accept_license
 from jdp_scraper.inventory import navigate_to_inventory, clear_filters, export_inventory_csv, filter_by_reference_number, click_bookout_for_vehicle
 from jdp_scraper.vehicle import download_vehicle_pdf
 from jdp_scraper.downloads import build_reference_tracking, save_tracking_to_json, update_tracking
+from jdp_scraper.metrics import RunMetrics
 
 
 def logout(page: Page) -> bool:
@@ -52,7 +53,9 @@ def logout(page: Page) -> bool:
         return False
 
 
-def process_single_vehicle(page: Page, ref_num: str, tracking: dict) -> bool:
+def process_single_vehicle(
+    page: Page, ref_num: str, tracking: dict, metrics: RunMetrics | None = None
+) -> bool:
     """
     Process a single vehicle: filter, open, download PDF, return to inventory.
     
@@ -64,15 +67,22 @@ def process_single_vehicle(page: Page, ref_num: str, tracking: dict) -> bool:
     Returns:
         True if successful, False otherwise
     """
+    if metrics is not None:
+        metrics.start_vehicle(ref_num)
+
     try:
         # Filter inventory by reference number
         if not filter_by_reference_number(page, ref_num):
             print(f"[ERROR] Could not filter by reference number: {ref_num}")
+            if metrics is not None:
+                metrics.end_vehicle(ref_num, status="failed", error="filter_failed")
             return False
-        
+
         # Click bookout to open vehicle page
         if not click_bookout_for_vehicle(page, ref_num):
             print(f"[ERROR] Could not click bookout for: {ref_num}")
+            if metrics is not None:
+                metrics.end_vehicle(ref_num, status="failed", error="bookout_click_failed")
             return False
         
         # Download the PDF
@@ -82,12 +92,16 @@ def process_single_vehicle(page: Page, ref_num: str, tracking: dict) -> bool:
             print(f"[ERROR] Could not download PDF for: {ref_num}")
             # Still navigate back even if download failed
             navigate_to_inventory(page)
+            if metrics is not None:
+                metrics.end_vehicle(ref_num, status="failed", error="download_failed")
             return False
-        
+
         # Update tracking
         pdf_filename = f"{ref_num}.pdf"
         update_tracking(tracking, ref_num, pdf_filename)
         print(f"[SUCCESS] PDF downloaded and tracked: {ref_num}.pdf")
+        if metrics is not None:
+            metrics.end_vehicle(ref_num, status="success")
         
         # Navigate back to inventory
         if not navigate_to_inventory(page):
@@ -105,6 +119,8 @@ def process_single_vehicle(page: Page, ref_num: str, tracking: dict) -> bool:
             navigate_to_inventory(page)
         except:
             pass
+        if metrics is not None:
+            metrics.end_vehicle(ref_num, status="failed", error=str(e))
         return False
 
 
@@ -115,92 +131,121 @@ def run():
     print(f"Run directory: {config.RUN_DIR}")
     print(f"Headless mode: {config.HEADLESS}")
     print(f"Target URL: {config.BASE_URL}")
-    
+
     # Configuration for batch processing
     MAX_DOWNLOADS = 50  # Download up to 50 PDFs in this run (configurable)
-    
+
+    metrics = RunMetrics()
+    metrics.add_metadata(headless=config.HEADLESS, max_downloads=MAX_DOWNLOADS)
+
+    total_inventory = 0
+    attempted = 0
+    success_count = 0
+    fail_count = 0
+    remaining = 0
+
     with sync_playwright() as p:
         # Launch browser
-        browser = p.chromium.launch(headless=config.HEADLESS)
-        context = browser.new_context()
-        page = context.new_page()
-        
+        with metrics.track_step("launch_browser"):
+            browser = p.chromium.launch(headless=config.HEADLESS)
+            context = browser.new_context()
+            page = context.new_page()
+
         # Set default timeout
         page.set_default_timeout(config.DEFAULT_TIMEOUT)
-        
+
         try:
             # Navigate to the website
             print(f"\nNavigating to {config.BASE_URL}...")
-            page.goto(config.BASE_URL, wait_until="networkidle")
-            print(f"Page loaded: {page.title()}")
-            
+            with metrics.track_step("navigate_to_base"):
+                page.goto(config.BASE_URL, wait_until="networkidle")
+                print(f"Page loaded: {page.title()}")
+
             # Perform login
-            if not login(page):
+            with metrics.track_step("login"):
+                login_success = login(page)
+            if not login_success:
                 print("Login failed. Exiting...")
                 return
-            
+
             # Accept license agreement if present
-            accept_license(page)
-            
+            with metrics.track_step("accept_license"):
+                accept_license(page)
+
             # Navigate to inventory page
-            if not navigate_to_inventory(page):
+            with metrics.track_step("navigate_to_inventory"):
+                inventory_loaded = navigate_to_inventory(page)
+            if not inventory_loaded:
                 print("Failed to navigate to inventory. Exiting...")
                 return
-            
+
             # Clear any existing filters
-            clear_filters(page)
-            
+            with metrics.track_step("clear_filters"):
+                clear_filters(page)
+
             # Export inventory to CSV
-            csv_path = export_inventory_csv(page)
+            with metrics.track_step("export_inventory_csv"):
+                csv_path = export_inventory_csv(page)
             if not csv_path:
                 print("Failed to export CSV. Exiting...")
                 return
-            
+
             print(f"\nInventory CSV saved at: {csv_path}")
-            
+
             # Build tracking of reference numbers and their PDF status
-            tracking = build_reference_tracking(csv_path)
-            
+            with metrics.track_step("build_reference_tracking"):
+                tracking = build_reference_tracking(csv_path)
+            total_inventory = len(tracking)
+            metrics.add_metadata(total_inventory=total_inventory)
+
             # Save tracking to JSON for resume capability
-            save_tracking_to_json(tracking)
-            
+            with metrics.track_step("save_tracking"):
+                save_tracking_to_json(tracking)
+
             # Get list of reference numbers that need downloading
             pending_refs = [ref for ref, status in tracking.items() if status is None]
             total_pending = len(pending_refs)
             already_done = len(tracking) - total_pending
-            
+            remaining = total_pending
+
             print(f"\n{'='*60}")
             print(f"BATCH PROCESSING: Will download up to {MAX_DOWNLOADS} PDFs")
             print(f"Total vehicles: {len(tracking)}")
             print(f"Already downloaded: {already_done}")
             print(f"Pending: {total_pending}")
             print(f"{'='*60}\n")
-            
+
             if total_pending == 0:
                 print("All PDFs already downloaded! Nothing to do.")
+                metrics.finalize(
+                    total_inventory=total_inventory,
+                    attempted=0,
+                    succeeded=0,
+                    failed=0,
+                    remaining=0,
+                )
                 return
-            
+
             # Limit to MAX_DOWNLOADS
             refs_to_process = pending_refs[:MAX_DOWNLOADS]
-            
+            attempted = len(refs_to_process)
+
             # Process each reference number
-            success_count = 0
-            fail_count = 0
-            
             for idx, ref_num in enumerate(refs_to_process, 1):
                 print(f"\n{'='*60}")
                 print(f"Processing {idx}/{len(refs_to_process)}: Reference {ref_num}")
                 print(f"Progress: {success_count} succeeded, {fail_count} failed")
                 print(f"{'='*60}")
-                
-                if process_single_vehicle(page, ref_num, tracking):
+
+                if process_single_vehicle(page, ref_num, tracking, metrics=metrics):
                     success_count += 1
                 else:
                     fail_count += 1
-                
+
                 # Show progress
                 print(f"\nStatus: {success_count}/{len(refs_to_process)} completed successfully")
-            
+                remaining = max(total_pending - (success_count + fail_count), 0)
+
             # Final summary
             print(f"\n{'='*60}")
             print(f"BATCH COMPLETE!")
@@ -210,7 +255,15 @@ def run():
             print(f"Total processed: {len(refs_to_process)}")
             print(f"Remaining: {total_pending - len(refs_to_process)}")
             print(f"{'='*60}\n")
-            
+
+            metrics.finalize(
+                total_inventory=total_inventory,
+                attempted=attempted,
+                succeeded=success_count,
+                failed=fail_count,
+                remaining=remaining,
+            )
+
         except Exception as e:
             print(f"Error: {e}")
             import traceback
@@ -221,6 +274,18 @@ def run():
                 logout(page)
             except:
                 print("[WARNING] Could not logout (page may be closed)")
-            
+
             browser.close()
             print("\nBrowser closed.")
+
+            if metrics.summary is None:
+                metrics.finalize(
+                    total_inventory=total_inventory,
+                    attempted=attempted,
+                    succeeded=success_count,
+                    failed=fail_count,
+                    remaining=remaining,
+                )
+            metrics_path = metrics.save()
+            print(f"[METRICS] Saved timing data to {metrics_path}")
+            metrics.print_console_report(additional_targets=[2000])

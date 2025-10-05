@@ -54,6 +54,12 @@ This project will automate downloading vehicle PDFs from JD Power Values Online 
 - `orchestration.py`: high-level flow placeholder
 - `waits.py`, `logging_utils.py`, `config.py`, `selectors.py`: support scaffolding
 
+### Metrics & Timing Reports
+- Runtime metrics are automatically captured by `RunMetrics` during each orchestration run.
+- A JSON report (`downloads/<date>/metrics.json`) stores per-step and per-vehicle timings.
+- The console prints a performance summary including an estimated duration for processing a full 2,000-PDF inventory.
+- See `docs/performance_plan.md` for detailed guidance on interpreting the metrics and communicating timelines.
+
 ### Running
 - Not implemented yet. `main.py` is a stub that will later call orchestration.
 
