@@ -34,6 +34,7 @@ from jdp_scraper.vehicle_async import download_vehicle_pdf_async
 
 async def watchdog(
     task_queue: AsyncTaskQueue,
+    workers: List[asyncio.Task],
     check_interval: int = 60,
     timeout_seconds: int = 300
 ) -> None:
@@ -42,6 +43,7 @@ async def watchdog(
     
     Args:
         task_queue: Task queue to monitor
+        workers: List of worker tasks to monitor
         check_interval: How often to check (seconds)
         timeout_seconds: How long before a task is considered stuck
     """
@@ -50,10 +52,21 @@ async def watchdog(
     while True:
         await asyncio.sleep(check_interval)
         
-        # Check if queue is empty
-        if await task_queue.is_empty():
-            print("[WATCHDOG] All tasks complete, shutting down")
+        # Check if ALL workers are done
+        all_done = all(worker.done() for worker in workers)
+        if all_done:
+            print("[WATCHDOG] All workers complete, shutting down")
             break
+        
+        # Check if queue is empty (but workers might still be processing)
+        if await task_queue.is_empty():
+            active_workers = sum(1 for worker in workers if not worker.done())
+            if active_workers == 0:
+                print("[WATCHDOG] All tasks complete, shutting down")
+                break
+            else:
+                print(f"[WATCHDOG] Queue empty, waiting for {active_workers} workers to finish...")
+                continue
         
         # Check for stuck tasks
         stuck_tasks = await task_queue.get_stuck_tasks(timeout_seconds)
@@ -445,6 +458,7 @@ async def run_async() -> None:
             watchdog_task = asyncio.create_task(
                 watchdog(
                     task_queue=task_queue,
+                    workers=workers,
                     check_interval=60,  # Check every minute
                     timeout_seconds=300  # 5 minutes = stuck
                 )
@@ -452,7 +466,7 @@ async def run_async() -> None:
             
             # Wait for all workers to complete (BLOCKING)
             print(f"\n[PARALLEL] Workers processing tasks...")
-            await asyncio.gather(*workers, watchdog_task)
+            await asyncio.gather(*workers, watchdog_task, return_exceptions=True)
             
             # Print final queue statistics
             await task_queue.print_statistics()
