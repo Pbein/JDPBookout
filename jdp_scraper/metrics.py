@@ -283,7 +283,7 @@ class RunMetrics:
         
         # Section 4: Checkpoint/Recovery Data
         if checkpoint_data:
-            print(f"\n🔄 RECOVERY & CHECKPOINT DATA")
+            print(f"\n[RECOVERY & CHECKPOINT DATA]")
             print("-" * 70)
             print(f"  Total processed     : {checkpoint_data.get('total_processed', 0)}")
             print(f"  Checkpoint saves    : {checkpoint_data.get('total_processed', 0)} (after each vehicle)")
@@ -295,7 +295,7 @@ class RunMetrics:
         
         # Section 5: Error Breakdown
         if error_counts:
-            print(f"\n❌ ERROR BREAKDOWN")
+            print(f"\n[ERROR BREAKDOWN]")
             print("-" * 70)
             for error_type, count in sorted(error_counts.items(), key=lambda x: x[1], reverse=True):
                 print(f"  {error_type:20s}: {count} occurrences")

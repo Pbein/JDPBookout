@@ -4,7 +4,7 @@ High-level control flow using Playwright async API with single context, multiple
 Implements pre-assignment strategy to prevent duplicate downloads.
 """
 import asyncio
-from typing import List, Dict
+from typing import List, Dict, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 from jdp_scraper import config
@@ -87,6 +87,7 @@ async def recover_to_inventory_async(page: Page) -> bool:
 async def process_single_vehicle_async(
     page: Page,
     ref_num: str,
+    tracking: Dict[str, Optional[str]],
     checkpoint: ProgressCheckpoint,
     metrics: RunMetrics,
     semaphore_pool: AsyncSemaphorePool,
@@ -98,6 +99,7 @@ async def process_single_vehicle_async(
     Args:
         page: Playwright Page for this context
         ref_num: Reference number to process
+        tracking: Tracking dictionary (shared, will be updated)
         checkpoint: Progress checkpoint (thread-safe)
         metrics: Metrics tracker
         semaphore_pool: Semaphore pool for concurrency control
@@ -129,7 +131,7 @@ async def process_single_vehicle_async(
                     raise Exception("Failed to download PDF")
                 
                 # Update tracking
-                update_tracking(ref_num, f"{ref_num}.pdf")
+                update_tracking(tracking, ref_num, f"{ref_num}.pdf")
                 
                 # Record success
                 await checkpoint.record_success(ref_num)
@@ -320,6 +322,7 @@ async def run_async() -> None:
                     task = process_single_vehicle_async(
                         page=page,
                         ref_num=ref,
+                        tracking=tracking,
                         checkpoint=checkpoint,
                         metrics=metrics,
                         semaphore_pool=semaphore_pool
