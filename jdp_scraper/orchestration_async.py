@@ -1,6 +1,6 @@
 """Async orchestration for parallel PDF downloads.
 
-High-level control flow using Playwright async API with multiple browser contexts.
+High-level control flow using Playwright async API with single context, multiple pages.
 Implements pre-assignment strategy to prevent duplicate downloads.
 """
 import asyncio
@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 from jdp_scraper import config
 from jdp_scraper.async_utils import AsyncSemaphorePool
-from jdp_scraper.context_pool import ContextPool
+from jdp_scraper.page_pool import PagePool
 from jdp_scraper.checkpoint import ProgressCheckpoint
 from jdp_scraper.metrics import RunMetrics
 from jdp_scraper.downloads import (
@@ -29,6 +29,28 @@ from jdp_scraper.inventory_async import (
     click_bookout_for_vehicle_async
 )
 from jdp_scraper.vehicle_async import download_vehicle_pdf_async
+
+
+async def setup_resource_blocking(context: BrowserContext) -> None:
+    """
+    Set up resource blocking for a context to improve performance.
+    
+    Blocks: images, stylesheets, fonts, media (30-50% speedup)
+    
+    Args:
+        context: The browser context to configure
+    """
+    async def block_handler(route, request):
+        """Block certain resource types."""
+        resource_type = request.resource_type
+        
+        if resource_type in ['image', 'imageset', 'stylesheet', 'font', 'media']:
+            await route.abort()
+        else:
+            await route.continue_()
+            
+    await context.route("**/*", block_handler)
+    print("[RESOURCE_BLOCKING] Enabled (CSS/images/fonts blocked)")
 
 
 async def recover_to_inventory_async(page: Page) -> bool:
@@ -141,45 +163,6 @@ async def process_single_vehicle_async(
         return False
 
 
-async def initialize_context_async(context: BrowserContext, context_id: int) -> Page:
-    """
-    Initialize a browser context: login, accept license, navigate to inventory.
-    
-    Args:
-        context: Browser context to initialize
-        context_id: Context identifier for logging
-        
-    Returns:
-        The main page for this context
-    """
-    print(f"\n[CONTEXT {context_id}] Initializing...")
-    
-    # Create a new page
-    page = await context.new_page()
-    
-    # Navigate to login page
-    await page.goto(config.LOGIN_URL, wait_until="networkidle")
-    
-    # Login
-    if not await login_async(page):
-        raise Exception(f"Context {context_id}: Login failed")
-    
-    # Accept license if present
-    await accept_license_async(page)
-    
-    # Wait a moment for page to settle after login
-    await asyncio.sleep(2)
-    
-    # Navigate directly to inventory URL (more reliable than clicking link)
-    print(f"[CONTEXT {context_id}] Navigating to inventory URL...")
-    await page.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=20000)
-    await asyncio.sleep(2)
-    
-    # Clear filters
-    await clear_filters_async(page)
-    
-    print(f"[CONTEXT {context_id}] Initialization complete")
-    return page
 
 
 async def logout_async(page: Page) -> None:
@@ -218,19 +201,23 @@ async def run_async() -> None:
     metrics = RunMetrics()
     checkpoint = ProgressCheckpoint()
     
+    # Get number of pages (workers)
+    num_pages = int(os.getenv("CONCURRENT_CONTEXTS", "5"))
+    
     print("\n" + "="*60)
     print("JD POWER PDF DOWNLOADER - PARALLEL VERSION")
     print("="*60)
     print(f"Run directory      : {config.RUN_DIR}")
     print(f"Max downloads      : {config.MAX_DOWNLOADS_PER_RUN}")
-    print(f"Concurrent contexts: {getattr(config, 'CONCURRENT_CONTEXTS', 5)}")
+    print(f"Parallel pages     : {num_pages}")
     print(f"Headless mode      : {config.HEADLESS}")
     print(f"Block resources    : {config.BLOCK_RESOURCES} (CSS/images/fonts)")
     print("="*60 + "\n")
     
     async with async_playwright() as p:
         browser: Browser = None
-        context_pool: ContextPool = None
+        context: BrowserContext = None
+        page_pool: PagePool = None
         pages: List[Page] = []
         
         try:
@@ -239,31 +226,40 @@ async def run_async() -> None:
             browser = await p.chromium.launch(headless=config.HEADLESS)
             print(f"[BROWSER] Browser launched (headless={config.HEADLESS})")
             
-            # Get number of concurrent contexts
-            num_contexts = int(os.getenv("CONCURRENT_CONTEXTS", "5"))
+            # Create single context
+            print("\n[CONTEXT] Creating single browser context...")
+            context = await browser.new_context()
+            print("[CONTEXT] Context created")
             
-            # Create context pool
-            context_pool = ContextPool(
-                browser=browser,
-                num_contexts=num_contexts,
-                block_resources=config.BLOCK_RESOURCES
-            )
-            await context_pool.initialize()
+            # Apply resource blocking if enabled
+            if config.BLOCK_RESOURCES:
+                await setup_resource_blocking(context)
             
-            # Initialize all contexts in parallel
-            print(f"\n[INIT] Initializing {num_contexts} contexts in parallel...")
-            init_tasks = []
-            for i in range(num_contexts):
-                context = await context_pool.get_context_by_index(i)
-                task = initialize_context_async(context, i)
-                init_tasks.append(task)
+            # Login on first page
+            print("\n[LOGIN] Logging in on first page...")
+            page_0 = await context.new_page()
+            await page_0.goto(config.LOGIN_URL, wait_until="networkidle")
             
-            pages = await asyncio.gather(*init_tasks)
-            print(f"[INIT] All {num_contexts} contexts initialized")
+            if not await login_async(page_0):
+                raise Exception("Login failed")
             
-            # Export CSV (use first context)
+            # Accept license if present
+            await accept_license_async(page_0)
+            
+            # Wait for page to settle
+            await asyncio.sleep(2)
+            
+            # Navigate to inventory
+            print("\n[INVENTORY] Navigating to inventory...")
+            await page_0.goto(config.INVENTORY_URL, wait_until="networkidle", timeout=20000)
+            await asyncio.sleep(2)
+            
+            # Clear filters
+            await clear_filters_async(page_0)
+            
+            # Export CSV
             print("\n[CSV] Exporting inventory CSV...")
-            csv_path = await export_inventory_csv_async(pages[0])
+            csv_path = await export_inventory_csv_async(page_0)
             if not csv_path:
                 raise Exception("Failed to export CSV")
             
@@ -290,27 +286,36 @@ async def run_async() -> None:
                 print("[INFO] No pending vehicles to process")
                 return
             
-            # Pre-assign vehicles to contexts (prevents duplicates)
-            print(f"[ASSIGNMENT] Pre-assigning vehicles to {num_contexts} contexts...")
+            # Create page pool with additional pages
+            print(f"\n[PAGE_POOL] Creating page pool with {num_pages} pages...")
+            page_pool = PagePool(context, num_pages=num_pages)
+            await page_pool.initialize(first_page=page_0)
+            await page_pool.navigate_all_to_inventory()
+            
+            # Get all pages
+            pages = [page_pool.get_page(i) for i in range(num_pages)]
+            
+            # Pre-assign vehicles to pages (prevents duplicates)
+            print(f"\n[ASSIGNMENT] Pre-assigning vehicles to {num_pages} pages...")
             assignments: Dict[int, List[str]] = {}
             for idx, ref in enumerate(pending_refs):
-                context_id = idx % num_contexts
-                if context_id not in assignments:
-                    assignments[context_id] = []
-                assignments[context_id].append(ref)
+                page_id = idx % num_pages
+                if page_id not in assignments:
+                    assignments[page_id] = []
+                assignments[page_id].append(ref)
             
-            for ctx_id, refs in assignments.items():
-                print(f"[ASSIGNMENT] Context {ctx_id}: {len(refs)} vehicles")
+            for page_id, refs in assignments.items():
+                print(f"[ASSIGNMENT] Page {page_id}: {len(refs)} vehicles")
             
             # Create semaphore pool
-            semaphore_pool = AsyncSemaphorePool(max_concurrent=num_contexts)
+            semaphore_pool = AsyncSemaphorePool(max_concurrent=num_pages)
             
             # Process vehicles in parallel
             print(f"\n[PARALLEL] Starting parallel processing...")
             
             all_tasks = []
-            for context_id, refs in assignments.items():
-                page = pages[context_id]
+            for page_id, refs in assignments.items():
+                page = pages[page_id]
                 for ref in refs:
                     task = process_single_vehicle_async(
                         page=page,
@@ -347,17 +352,14 @@ async def run_async() -> None:
             # Cleanup
             print("\n[CLEANUP] Cleaning up...")
             
-            # Close all pages
-            for page in pages:
-                try:
-                    if not page.is_closed():
-                        await page.close()
-                except:
-                    pass
+            # Close page pool
+            if page_pool:
+                await page_pool.close_all()
             
-            # Close context pool
-            if context_pool:
-                await context_pool.close_all()
+            # Close context
+            if context:
+                await context.close()
+                print("[CLEANUP] Context closed")
             
             # Close browser
             if browser:
