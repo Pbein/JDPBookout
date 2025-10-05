@@ -362,16 +362,12 @@ async def run_async() -> None:
             browser = await p.chromium.launch(headless=config.HEADLESS)
             print(f"[BROWSER] Browser launched (headless={config.HEADLESS})")
             
-            # Create single context
+            # Create single context (WITHOUT resource blocking initially)
             print("\n[CONTEXT] Creating single browser context...")
             context = await browser.new_context()
             print("[CONTEXT] Context created")
             
-            # Apply resource blocking if enabled
-            if config.BLOCK_RESOURCES:
-                await setup_resource_blocking(context)
-            
-            # Login on first page
+            # Login on first page (with full CSS for menus to work)
             print("\n[LOGIN] Logging in on first page...")
             page_0 = await context.new_page()
             await page_0.goto(config.LOGIN_URL, wait_until="networkidle")
@@ -393,11 +389,17 @@ async def run_async() -> None:
             # Clear filters
             await clear_filters_async(page_0)
             
-            # Export CSV
+            # Export CSV (needs CSS for menu to work)
             print("\n[CSV] Exporting inventory CSV...")
             csv_path = await export_inventory_csv_async(page_0)
             if not csv_path:
                 raise Exception("Failed to export CSV")
+            
+            # NOW apply resource blocking for parallel processing (after CSV export)
+            if config.BLOCK_RESOURCES:
+                print("\n[RESOURCE_BLOCKING] Enabling resource blocking for parallel processing...")
+                await setup_resource_blocking(context)
+                print("[RESOURCE_BLOCKING] All new pages will have CSS/images blocked for speed")
             
             # Read reference numbers from CSV
             print("[CSV] Reading reference numbers from CSV...")
