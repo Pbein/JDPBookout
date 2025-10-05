@@ -105,11 +105,21 @@ async def download_vehicle_pdf_async(page: Page, reference_number: str, save_dir
             if pdf_page is not None:
                 print("Closing PDF tab...")
                 try:
-                    if not pdf_page.is_closed():
+                    if pdf_page.is_closed():
+                        print("PDF tab already closed")
+                    else:
                         await pdf_page.close()
                         print("PDF tab closed successfully")
                 except Exception as e:
                     print(f"[WARNING] Error closing PDF tab: {e}")
+                    # Try force close by checking all context pages
+                    try:
+                        for ctx_page in page.context.pages:
+                            if "GetPdfReport" in ctx_page.url and not ctx_page.is_closed():
+                                print(f"[FORCE CLOSE] Closing orphaned PDF tab: {ctx_page.url}")
+                                await ctx_page.close()
+                    except Exception as force_error:
+                        print(f"[WARNING] Force close failed: {force_error}")
         
     except Exception as e:
         print(f"[ERROR] Failed to download PDF: {e}")
