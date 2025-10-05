@@ -210,11 +210,14 @@ def process_single_vehicle(
 
 def run():
     """Main orchestration function to run the PDF downloader."""
-    print(f"Starting JD Power PDF Downloader...")
-    print(f"Today's folder: {config.TODAY_FOLDER}")
-    print(f"Run directory: {config.RUN_DIR}")
-    print(f"Headless mode: {config.HEADLESS}")
-    print(f"Target URL: {config.BASE_URL}")
+    print(f"\n{'='*70}")
+    print(f"  JD POWER PDF DOWNLOADER - Starting New Run")
+    print(f"{'='*70}")
+    print(f"  Date: {config.TODAY_FOLDER}")
+    print(f"  Run directory: {config.RUN_DIR}")
+    print(f"  Headless mode: {config.HEADLESS}")
+    print(f"  Target URL: {config.BASE_URL}")
+    print(f"{'='*70}\n")
 
     # Configuration for batch processing
     MAX_DOWNLOADS = 50  # Download up to 50 PDFs in this run (configurable)
