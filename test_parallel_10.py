@@ -8,18 +8,21 @@ import sys
 
 # Set test configuration
 os.environ["MAX_DOWNLOADS"] = "10"
-os.environ["CONCURRENT_CONTEXTS"] = "2"
+os.environ["CONCURRENT_CONTEXTS"] = "2"  # Number of pages (tabs)
 os.environ["HEADLESS"] = "false"  # Visible for testing
 os.environ["BLOCK_RESOURCES"] = "false"  # Show styling for visibility
 
 print("="*60)
-print("PARALLEL PROCESSING TEST - 10 VEHICLES, 2 CONTEXTS")
+print("PARALLEL PROCESSING TEST - 10 VEHICLES, 2 PAGES")
 print("="*60)
 print("Configuration:")
 print(f"  MAX_DOWNLOADS: {os.environ['MAX_DOWNLOADS']}")
-print(f"  CONCURRENT_CONTEXTS: {os.environ['CONCURRENT_CONTEXTS']}")
+print(f"  CONCURRENT_PAGES: {os.environ['CONCURRENT_CONTEXTS']}")
 print(f"  HEADLESS: {os.environ['HEADLESS']}")
 print(f"  BLOCK_RESOURCES: {os.environ['BLOCK_RESOURCES']}")
+print("="*60)
+print("Architecture: Single context, multiple pages (tabs)")
+print("Expected: Single login, all pages share session")
 print("="*60)
 print()
 
