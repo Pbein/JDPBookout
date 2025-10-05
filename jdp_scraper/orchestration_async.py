@@ -111,7 +111,7 @@ async def process_single_vehicle_async(
                 
                 # Record success
                 await checkpoint.record_success(ref_num)
-                metrics.end_vehicle(ref_num, success=True)
+                metrics.end_vehicle(ref_num, status="success")
                 
                 # Navigate back to inventory for next vehicle
                 await navigate_to_inventory_async(page)
@@ -132,7 +132,7 @@ async def process_single_vehicle_async(
                 else:
                     print(f"[FAILED] All attempts exhausted for {ref_num}")
                     await checkpoint.record_failure(ref_num)
-                    metrics.end_vehicle(ref_num, success=False, error=str(e))
+                    metrics.end_vehicle(ref_num, status="failed", error=str(e))
                     
                     # Try to recover for next vehicle
                     await recover_to_inventory_async(page)
@@ -166,6 +166,9 @@ async def initialize_context_async(context: BrowserContext, context_id: int) -> 
     
     # Accept license if present
     await accept_license_async(page)
+    
+    # Wait a moment for page to settle after login
+    await asyncio.sleep(2)
     
     # Navigate to inventory
     if not await navigate_to_inventory_async(page):
@@ -360,7 +363,19 @@ async def run_async() -> None:
                 print("[CLEANUP] Browser closed")
             
             # Finalize metrics
-            metrics.finalize()
+            total_inventory = len(all_refs) if 'all_refs' in locals() else 0
+            attempted = len(pending_refs) if 'pending_refs' in locals() else 0
+            succeeded = checkpoint.total_succeeded
+            failed = checkpoint.total_failed
+            remaining = total_inventory - checkpoint.total_processed
+            
+            metrics.finalize(
+                total_inventory=total_inventory,
+                attempted=attempted,
+                succeeded=succeeded,
+                failed=failed,
+                remaining=remaining
+            )
             metrics.save()
             
             # Print final report
