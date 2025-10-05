@@ -20,6 +20,7 @@ from jdp_scraper.inventory import navigate_to_inventory, clear_filters, export_i
 from jdp_scraper.vehicle import download_vehicle_pdf
 from jdp_scraper.downloads import build_reference_tracking, save_tracking_to_json, update_tracking
 from jdp_scraper.metrics import RunMetrics
+from jdp_scraper.checkpoint import ProgressCheckpoint
 
 
 def logout(page: Page) -> bool:
@@ -91,7 +92,8 @@ def recover_to_inventory(page: Page) -> bool:
 
 
 def process_single_vehicle(
-    page: Page, ref_num: str, tracking: dict, metrics: RunMetrics | None = None, max_retries: int = 2
+    page: Page, ref_num: str, tracking: dict, checkpoint: ProgressCheckpoint = None, 
+    metrics: RunMetrics | None = None, max_retries: int = 2
 ) -> bool:
     """
     Process a single vehicle: filter, open, download PDF, return to inventory.
@@ -159,6 +161,11 @@ def process_single_vehicle(
             pdf_filename = f"{ref_num}.pdf"
             update_tracking(tracking, ref_num, pdf_filename)
             print(f"[SUCCESS] PDF downloaded and tracked: {ref_num}.pdf")
+            
+            # Record success in checkpoint
+            if checkpoint is not None:
+                checkpoint.record_success(ref_num)
+            
             if metrics is not None:
                 metrics.end_vehicle(ref_num, status="success")
             
@@ -186,12 +193,18 @@ def process_single_vehicle(
             # Retry if we have attempts left
             if attempt < max_retries:
                 continue
+            
+            # Record failure in checkpoint after all retries exhausted
+            if checkpoint is not None:
+                checkpoint.record_failure(ref_num)
                 
             if metrics is not None:
                 metrics.end_vehicle(ref_num, status="failed", error=str(e))
             return False
     
     # Should never reach here, but just in case
+    if checkpoint is not None:
+        checkpoint.record_failure(ref_num)
     return False
 
 
@@ -205,9 +218,12 @@ def run():
 
     # Configuration for batch processing
     MAX_DOWNLOADS = 50  # Download up to 50 PDFs in this run (configurable)
+    STUCK_THRESHOLD = 5  # Number of consecutive failures before considering "stuck"
 
     metrics = RunMetrics()
     metrics.add_metadata(headless=config.HEADLESS, max_downloads=MAX_DOWNLOADS)
+    
+    checkpoint = ProgressCheckpoint()
 
     total_inventory = 0
     attempted = 0
@@ -308,7 +324,42 @@ def run():
                 print(f"Progress: {success_count} succeeded, {fail_count} failed")
                 print(f"{'='*60}")
 
-                if process_single_vehicle(page, ref_num, tracking, metrics=metrics):
+                # Check if we're stuck (too many consecutive failures)
+                if checkpoint.is_stuck(STUCK_THRESHOLD):
+                    print(f"\n⚠️  WARNING: {checkpoint.consecutive_failures} consecutive failures detected!")
+                    print(f"[RECOVERY] Attempting browser recovery...")
+                    
+                    # Try to recover by closing browser and restarting
+                    try:
+                        browser.close()
+                        print("[RECOVERY] Browser closed, relaunching...")
+                        import time
+                        time.sleep(5)  # Wait before relaunch
+                        
+                        browser = p.chromium.launch(headless=config.HEADLESS)
+                        context = browser.new_context()
+                        page = context.new_page()
+                        page.set_default_timeout(config.DEFAULT_TIMEOUT)
+                        
+                        # Re-login
+                        print("[RECOVERY] Re-logging in...")
+                        page.goto(config.BASE_URL, wait_until="networkidle")
+                        if not login(page):
+                            print("[RECOVERY] Login failed, aborting...")
+                            break
+                        accept_license(page)
+                        navigate_to_inventory(page)
+                        
+                        # Reset stuck state
+                        checkpoint.reset_if_stuck()
+                        print("[RECOVERY] Browser recovered successfully!")
+                        
+                    except Exception as recovery_error:
+                        print(f"[RECOVERY] Failed to recover: {recovery_error}")
+                        print("[RECOVERY] Continuing with existing browser...")
+                        checkpoint.reset_if_stuck()  # Reset anyway to avoid infinite loop
+
+                if process_single_vehicle(page, ref_num, tracking, checkpoint=checkpoint, metrics=metrics):
                     success_count += 1
                     # Add a small delay after successful download to avoid overwhelming the server
                     if idx < len(refs_to_process):  # Don't delay after the last one
@@ -317,8 +368,11 @@ def run():
                 else:
                     fail_count += 1
 
-                # Show progress
+                # Show progress and checkpoint status every 10 items
                 print(f"\nStatus: {success_count}/{len(refs_to_process)} completed successfully")
+                if idx % 10 == 0:
+                    checkpoint.print_status()
+                
                 remaining = max(total_pending - (success_count + fail_count), 0)
 
             # Final summary
@@ -330,6 +384,9 @@ def run():
             print(f"Total processed: {len(refs_to_process)}")
             print(f"Remaining: {total_pending - len(refs_to_process)}")
             print(f"{'='*60}\n")
+            
+            # Print final checkpoint status
+            checkpoint.print_status()
 
             metrics.finalize(
                 total_inventory=total_inventory,
