@@ -274,7 +274,7 @@ async def run_async() -> None:
             # Load or build tracking
             tracking = load_tracking_from_json()
             if not tracking:
-                tracking = build_reference_tracking(all_refs)
+                tracking = build_reference_tracking(csv_path)
                 save_tracking_to_json(tracking)
             
             # Filter to pending references

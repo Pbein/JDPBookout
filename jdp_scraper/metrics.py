@@ -258,8 +258,12 @@ class RunMetrics:
         print(f"\n[PROCESSING RESULTS]")
         print("-" * 70)
         print(f"  Attempted this run  : {self.summary.attempted}")
-        print(f"  [SUCCESS] Succeeded : {self.summary.succeeded} ({self.summary.succeeded/self.summary.attempted*100:.1f}%)")
-        print(f"  [FAILED] Failed     : {self.summary.failed} ({self.summary.failed/self.summary.attempted*100:.1f}%)")
+        if self.summary.attempted > 0:
+            print(f"  [SUCCESS] Succeeded : {self.summary.succeeded} ({self.summary.succeeded/self.summary.attempted*100:.1f}%)")
+            print(f"  [FAILED] Failed     : {self.summary.failed} ({self.summary.failed/self.summary.attempted*100:.1f}%)")
+        else:
+            print(f"  [SUCCESS] Succeeded : {self.summary.succeeded}")
+            print(f"  [FAILED] Failed     : {self.summary.failed}")
         print(f"  Remaining           : {self.summary.remaining:,}")
         
         # Section 3: Performance Metrics
