@@ -12,7 +12,7 @@ load_dotenv()
 # URLs
 BASE_URL = "https://extapps.jdpowervalues.com/ValuesOnline/Home/LicenseAgreement?ReturnUrl=/ValuesOnline/"
 LOGIN_URL = BASE_URL  # Login is on the same page
-INVENTORY_URL = "https://extapps.jdpowervalues.com/ValuesOnline/Inventory"
+INVENTORY_URL = "https://extapps.jdpowervalues.com/ValuesOnline/vehicle/"
 
 # Credentials from environment
 JD_USER = os.getenv("JD_USER", "")
@@ -20,6 +20,7 @@ JD_PASS = os.getenv("JD_PASS", "")
 
 # Browser settings
 HEADLESS = os.getenv("HEADLESS", "false").lower() in ("true", "1", "yes")
+BLOCK_RESOURCES = os.getenv("BLOCK_RESOURCES", "true").lower() in ("true", "1", "yes")  # Block CSS/images for speed
 
 # Batch processing settings
 MAX_DOWNLOADS_PER_RUN = int(os.getenv("MAX_DOWNLOADS", "9999"))  # Default: process all pending
