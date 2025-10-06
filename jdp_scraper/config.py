@@ -55,14 +55,24 @@ def get_run_directory():
         return base_path
     
     # Check if there are any PDFs or tracking.json in the base path
+    # (Check both old structure and new subfolder structure)
     has_content = False
     if os.path.exists(base_path):
+        # Check for old structure (files in root)
         files = os.listdir(base_path)
-        # Check for PDFs or tracking.json (signs of a previous run)
         has_content = any(
             f.endswith('.pdf') or f == 'tracking.json' 
             for f in files
         )
+        
+        # Also check for new structure (subfolders with content)
+        if not has_content:
+            pdf_dir = os.path.join(base_path, 'pdfs')
+            data_dir = os.path.join(base_path, 'run_data')
+            if os.path.exists(pdf_dir) and os.listdir(pdf_dir):
+                has_content = True
+            elif os.path.exists(data_dir) and os.listdir(data_dir):
+                has_content = True
     
     if not has_content:
         # Folder exists but is empty, use it
@@ -75,12 +85,21 @@ def get_run_directory():
         if not os.path.exists(numbered_path):
             return numbered_path
         
-        # Check if this numbered folder has content
+        # Check if this numbered folder has content (both old and new structure)
         files = os.listdir(numbered_path)
         has_content = any(
             f.endswith('.pdf') or f == 'tracking.json' 
             for f in files
         )
+        
+        # Also check new subfolder structure
+        if not has_content:
+            pdf_dir = os.path.join(numbered_path, 'pdfs')
+            data_dir = os.path.join(numbered_path, 'run_data')
+            if os.path.exists(pdf_dir) and os.listdir(pdf_dir):
+                has_content = True
+            elif os.path.exists(data_dir) and os.listdir(data_dir):
+                has_content = True
         
         if not has_content:
             # Found an empty numbered folder, use it
@@ -95,6 +114,12 @@ def get_run_directory():
 # Format: MM-DD-YYYY (e.g., 10-01-2025)
 TODAY_FOLDER = datetime.now().strftime('%m-%d-%Y')
 RUN_DIR = get_run_directory()  # Main folder for today's run (may be numbered)
-DATA_DIR = RUN_DIR  # CSV and data files go here
-PDF_DIR = RUN_DIR  # PDFs will be saved here
+
+# Organized subfolders
+DATA_DIR = os.path.join(RUN_DIR, "run_data")  # CSV, JSON, metrics go here
+PDF_DIR = os.path.join(RUN_DIR, "pdfs")  # PDFs will be saved here
+
+# Ensure directories exist
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(PDF_DIR, exist_ok=True)
 

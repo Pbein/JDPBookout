@@ -97,10 +97,23 @@ def validate_all_pdfs(download_folder: str) -> Dict:
         print(f"[ERROR] Folder not found: {download_folder}")
         sys.exit(1)
     
+    # Determine folder structure (new with subfolders or old flat structure)
+    pdf_dir = os.path.join(download_folder, "pdfs")
+    data_dir = os.path.join(download_folder, "run_data")
+    
+    # Check if using new subfolder structure
+    if os.path.exists(pdf_dir) and os.path.exists(data_dir):
+        print("[INFO] Using new organized folder structure (pdfs/ and run_data/)")
+        pdf_folder = pdf_dir
+        tracking_path = os.path.join(data_dir, "tracking.json")
+    else:
+        print("[INFO] Using legacy flat folder structure")
+        pdf_folder = download_folder
+        tracking_path = os.path.join(download_folder, "tracking.json")
+    
     # Load tracking.json
-    tracking_path = os.path.join(download_folder, "tracking.json")
     if not os.path.exists(tracking_path):
-        print(f"[ERROR] tracking.json not found in {download_folder}")
+        print(f"[ERROR] tracking.json not found at {tracking_path}")
         sys.exit(1)
     
     with open(tracking_path, 'r') as f:
@@ -128,7 +141,7 @@ def validate_all_pdfs(download_folder: str) -> Dict:
     unreadable = 0
     
     for i, (ref, pdf_name) in enumerate(downloaded.items(), 1):
-        pdf_path = os.path.join(download_folder, pdf_name)
+        pdf_path = os.path.join(pdf_folder, pdf_name)
         
         # Progress indicator
         if i % 50 == 0 or i == len(downloaded):

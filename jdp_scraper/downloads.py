@@ -129,7 +129,7 @@ def save_tracking_to_json(tracking: Dict[str, Optional[str]], directory: str = N
     """
     try:
         if directory is None:
-            directory = config.RUN_DIR
+            directory = config.DATA_DIR  # Use DATA_DIR for JSON files
         
         os.makedirs(directory, exist_ok=True)
         json_path = os.path.join(directory, "tracking.json")
@@ -157,7 +157,7 @@ def load_tracking_from_json(directory: str = None) -> Dict[str, Optional[str]]:
     """
     try:
         if directory is None:
-            directory = config.RUN_DIR
+            directory = config.DATA_DIR  # Use DATA_DIR for JSON files
         
         json_path = os.path.join(directory, "tracking.json")
         

@@ -71,7 +71,7 @@ class RunMetrics:
         self._vehicle_start_times: Dict[str, datetime] = {}
         self.summary: Optional[RunSummary] = None
         self.metadata: Dict[str, str] = {}
-        self.output_dir = Path(output_dir or config.RUN_DIR)
+        self.output_dir = Path(output_dir or config.DATA_DIR)
 
     def add_metadata(self, **kwargs) -> None:
         """Attach additional metadata about the run (e.g., settings)."""

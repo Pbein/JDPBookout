@@ -27,7 +27,7 @@ class ProgressCheckpoint:
             checkpoint_file: Path to checkpoint file (default: in RUN_DIR)
         """
         if checkpoint_file is None:
-            checkpoint_file = os.path.join(config.RUN_DIR, "checkpoint.json")
+            checkpoint_file = os.path.join(config.DATA_DIR, "checkpoint.json")
         
         self.checkpoint_file = checkpoint_file
         self.consecutive_failures = 0
