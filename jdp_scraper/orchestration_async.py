@@ -478,9 +478,6 @@ async def run_async() -> None:
             print(f"[COMPLETE] Successes: {stats['completed']}/{stats['total']}")
             print(f"[COMPLETE] Failures: {stats['failed']}/{stats['total']}")
             
-            # Logout from first context
-            await logout_async(pages[0])
-            
         except KeyboardInterrupt:
             print("\n[INTERRUPTED] Received interrupt signal")
             
@@ -492,6 +489,13 @@ async def run_async() -> None:
         finally:
             # Cleanup
             print("\n[CLEANUP] Cleaning up...")
+            
+            # Logout BEFORE closing pages (needs an active page to navigate)
+            if 'pages' in locals() and pages and len(pages) > 0:
+                try:
+                    await logout_async(pages[0])
+                except Exception as e:
+                    print(f"[LOGOUT] Logout failed (not critical): {e}")
             
             # Close page pool
             if page_pool:
