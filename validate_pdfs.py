@@ -89,10 +89,23 @@ def validate_pdfs(download_folder: str):
         print(f"[ERROR] Folder not found: {download_folder}")
         return
     
+    # Determine folder structure (new with subfolders or old flat structure)
+    pdf_dir = os.path.join(download_folder, "pdfs")
+    data_dir = os.path.join(download_folder, "run_data")
+    
+    # Check if using new subfolder structure
+    if os.path.exists(pdf_dir) and os.path.exists(data_dir):
+        print("[INFO] Using new organized folder structure (pdfs/ and run_data/)")
+        pdf_folder = pdf_dir
+        tracking_path = os.path.join(data_dir, "tracking.json")
+    else:
+        print("[INFO] Using legacy flat folder structure")
+        pdf_folder = download_folder
+        tracking_path = os.path.join(download_folder, "tracking.json")
+    
     # Load tracking.json
-    tracking_path = os.path.join(download_folder, "tracking.json")
     if not os.path.exists(tracking_path):
-        print(f"[ERROR] tracking.json not found in {download_folder}")
+        print(f"[ERROR] tracking.json not found at {tracking_path}")
         return
     
     with open(tracking_path, 'r') as f:
@@ -109,7 +122,7 @@ def validate_pdfs(download_folder: str):
     print()
     
     # Get list of PDF files in folder
-    pdf_files = [f for f in os.listdir(download_folder) if f.endswith('.pdf')]
+    pdf_files = [f for f in os.listdir(pdf_folder) if f.endswith('.pdf')]
     print(f"PDF files found in folder: {len(pdf_files)}")
     print()
     
@@ -126,7 +139,7 @@ def validate_pdfs(download_folder: str):
     # Check 1: All downloaded items in tracking have corresponding files
     print("[CHECK 1] Verifying all tracked PDFs exist...")
     for ref, pdf_name in downloaded.items():
-        pdf_path = os.path.join(download_folder, pdf_name)
+        pdf_path = os.path.join(pdf_folder, pdf_name)
         if not os.path.exists(pdf_path):
             missing_files.append((ref, pdf_name))
     
@@ -171,7 +184,7 @@ def validate_pdfs(download_folder: str):
         
         for ref in sample_refs:
             pdf_name = downloaded[ref]
-            pdf_path = os.path.join(download_folder, pdf_name)
+            pdf_path = os.path.join(pdf_folder, pdf_name)
             
             if not os.path.exists(pdf_path):
                 continue
