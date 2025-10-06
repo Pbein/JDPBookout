@@ -159,6 +159,24 @@ async def download_vehicle_pdf_async(page: Page, reference_number: str, save_dir
                     except Exception as cleanup_error:
                         print(f"[WARNING] Cleanup failed: {cleanup_error}")
                 
+                # CRITICAL: Add buffer delay before releasing lock to ensure context stabilizes
+                # This prevents the next worker from immediately opening a PDF tab while
+                # the context is still processing the closure of the previous tab
+                await asyncio.sleep(1.0)  # Buffer to ensure tab is fully closed and context is stable
+                
+                # Final verification: ensure no PDF tabs remain
+                pdf_tabs_remaining = 0
+                try:
+                    for ctx_page in page.context.pages:
+                        if "GetPdfReport" in ctx_page.url and not ctx_page.is_closed():
+                            pdf_tabs_remaining += 1
+                            print(f"[WARNING] PDF tab still open: {ctx_page.url}")
+                    
+                    if pdf_tabs_remaining > 0:
+                        print(f"[WARNING] {pdf_tabs_remaining} PDF tabs still open before releasing lock")
+                except Exception as e:
+                    print(f"[WARNING] Could not verify PDF tabs: {e}")
+                
                 print("[LOCK] Released PDF download lock")
         
     except Exception as e:
