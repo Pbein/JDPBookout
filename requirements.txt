@@ -1,9 +1,12 @@
-playwright
-python-dotenv
-requests
-PyPDF2
+# Core dependencies
+playwright>=1.40.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+PyPDF2>=3.0.0
 
 # GUI-specific dependencies
 keyring>=24.0.0
 cryptography>=41.0.0
+
+# Optional: For building standalone executables
 pyinstaller>=6.0.0
