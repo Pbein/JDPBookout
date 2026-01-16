@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.env
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project artifacts
+downloads/
+data/
+*.csv
+*.pdf
+.env
+
